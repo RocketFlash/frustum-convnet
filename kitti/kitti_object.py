@@ -19,46 +19,32 @@ import kitti_util as utils
 class kitti_object(object):
     '''Load and parse object data into a usable format.'''
 
-    def __init__(self, root_dir, split='training'):
+    def __init__(self, root_dir):
         '''root_dir contains training and testing folders'''
         self.root_dir = root_dir
-        self.split = split
-        self.split_dir = os.path.join(root_dir, split)
-
-        if split == 'training':
-            self.num_samples = 7481
-        elif split == 'testing':
-            self.num_samples = 7518
-        else:
-            print('Unknown split: %s' % (split))
-            exit(-1)
-
-        self.image_dir = os.path.join(self.split_dir, 'image_2')
-        self.calib_dir = os.path.join(self.split_dir, 'calib')
-        self.lidar_dir = os.path.join(self.split_dir, 'velodyne')
-        self.label_dir = os.path.join(self.split_dir, 'label_2')
+        self.image_dir = os.path.join(self.root_dir, 'image_2')
+        self.calib_dir = os.path.join(self.root_dir, 'calib')
+        self.lidar_dir = os.path.join(self.root_dir, 'velodyne')
+        self.label_dir = os.path.join(self.root_dir, 'label_2')
+        self.num_samples = len([f for f in os.scandir(self.label_dir) if f.is_file()])
 
     def __len__(self):
         return self.num_samples
 
     def get_image(self, idx):
-        assert (idx < self.num_samples)
-        img_filename = os.path.join(self.image_dir, '%06d.png' % (idx))
+        img_filename = os.path.join(self.image_dir, '{}.png'.format(idx))
         return utils.load_image(img_filename)
 
     def get_lidar(self, idx):
-        assert (idx < self.num_samples)
-        lidar_filename = os.path.join(self.lidar_dir, '%06d.bin' % (idx))
+        lidar_filename = os.path.join(self.lidar_dir, '{}.bin'.format(idx))
         return utils.load_velo_scan(lidar_filename)
 
     def get_calibration(self, idx):
-        assert (idx < self.num_samples)
-        calib_filename = os.path.join(self.calib_dir, '%06d.txt' % (idx))
+        calib_filename = os.path.join(self.calib_dir, '{}.txt'.format(idx))
         return utils.Calibration(calib_filename)
 
     def get_label_objects(self, idx):
-        assert (idx < self.num_samples and self.split == 'training')
-        label_filename = os.path.join(self.label_dir, '%06d.txt' % (idx))
+        label_filename = os.path.join(self.label_dir, '{}.txt'.format(idx))
         return utils.read_label(label_filename)
 
     def get_depth_map(self, idx):

@@ -34,7 +34,7 @@ from configs.config import assert_and_infer_cfg
 
 from utils.training_states import TrainingStates
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
-
+from sklearn.model_selection import train_test_split
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -201,6 +201,18 @@ def validate(data_loader, model, epoch, logger=None):
 
     return states['IoU_' + str(cfg.IOU_THRESH)]
 
+def get_sample_names(dataset_path):
+    image_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'image_2/') if f.is_file()]
+    lidar_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'velodyne/') if f.is_file()]
+    calib_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'calib/') if f.is_file()]
+    label_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'label_2/') if f.is_file()]
+
+    sample_names = list(set(image_names+lidar_names+calib_names+label_names))
+    if len(sample_names) > 0:
+        return sample_names
+    else:
+        print('Something wrong with data')
+        sys.exit()
 
 def main():
     # parse arguments
@@ -250,9 +262,25 @@ def main():
     collate_fn = dataset_def.collate_fn
     dataset_def = dataset_def.ProviderDataset
 
+    train_dataset_path = cfg.DATA.TRAIN_DATASET_PATH
+    train_sample_names = get_sample_names(train_dataset_path)
+
+    if cfg.DATA.VAL_DATASET_PATH is None:
+        val_dataset_path = train_dataset_path
+        X_train, X_val = train_test_split(train_sample_names, 
+                                          test_size=cfg.DATA.VAL_DATA_RATIO, 
+                                          random_state=cfg.RANDOM_STATE)
+    else:
+        val_dataset_path = cfg.DATA.VAL_DATASET_PATH
+        val_sample_names = get_sample_names(val_dataset_path)
+        X_train, X_val = train_sample_names, val_sample_names
+    
+    
+
     train_dataset = dataset_def(
         cfg.DATA.NUM_SAMPLES,
-        split=cfg.TRAIN.DATASET,
+        data_names_list=X_train,
+        dataset_path = train_dataset_path,
         one_hot=True,
         random_flip=True,
         random_shift=True,
@@ -269,7 +297,8 @@ def main():
 
     val_dataset = dataset_def(
         cfg.DATA.NUM_SAMPLES,
-        split=cfg.TEST.DATASET,
+        data_names_list=X_val,
+        dataset_path = val_dataset_path,
         one_hot=True,
         random_flip=False,
         random_shift=False,

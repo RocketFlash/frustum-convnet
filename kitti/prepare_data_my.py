@@ -257,7 +257,7 @@ def extract_frustum_det_data(idx_filename, split, output_filename, det_filename,
     print('save in {}'.format(output_filename))
 
 
-def extract_frustum_data(data_names_list, output_filename=None, dataset_path=None, 
+def extract_frustum_data(data_names_list, dataset_path=None, 
                          perturb_box2d=False, augmentX=1, type_whitelist=['Car']):
     ''' Extract point clouds and corresponding annotations in frustums
         defined generated from 2D bounding boxes
@@ -377,34 +377,18 @@ def extract_frustum_data(data_names_list, output_filename=None, dataset_path=Non
     print('Average pos ratio: %f' % (pos_cnt / float(all_cnt)))
     print('Average npoints: %f' % (float(all_cnt) / len(id_list)))
 
-    if output_filename is not None:
-        with open(output_filename, 'wb') as fp:
-            pickle.dump(id_list, fp, -1)
-            pickle.dump(box2d_list, fp, -1)
-            pickle.dump(box3d_list, fp, -1)
-            pickle.dump(input_list, fp, -1)
-            pickle.dump(label_list, fp, -1)
-            pickle.dump(type_list, fp, -1)
-            pickle.dump(heading_list, fp, -1)
-            pickle.dump(box3d_size_list, fp, -1)
-            pickle.dump(frustum_angle_list, fp, -1)
-            pickle.dump(gt_box2d_list, fp, -1)
-            pickle.dump(calib_list, fp, -1)
-
-        print('save in {}'.format(output_filename))
-    else:
-        data = { 'id_list': id_list,
-                 'box2d_list' : box2d_list, 
-                 'box3d_list': box3d_list, 
-                 'input_list':input_list, 
-                 'label_list':label_list,
-                 'type_list':type_list, 
-                 'heading_list':heading_list, 
-                 'box3d_size_list':box3d_size_list, 
-                 'frustum_angle_list':frustum_angle_list,
-                 'gt_box2d_list':gt_box2d_list, 
-                 'calib_list':calib_list}
-        return data
+    data = { 'id_list': id_list,
+             'box2d_list' : box2d_list, 
+             'box3d_list': box3d_list, 
+             'input_list':input_list, 
+             'label_list':label_list,
+             'type_list':type_list, 
+             'heading_list':heading_list, 
+             'box3d_size_list':box3d_size_list, 
+             'frustum_angle_list':frustum_angle_list,
+             'gt_box2d_list':gt_box2d_list, 
+             'calib_list':calib_list}
+    return data
 
    
 
@@ -614,69 +598,3 @@ def write_2d_rgb_detection(det_filename, split, result_dir):
         for line in results[idx]:
             fout.write(line + '\n')
         fout.close()
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--gen_train', action='store_true',
-                        help='Generate train split frustum data with perturbed GT 2D boxes')
-
-    parser.add_argument('--gen_val', action='store_true', help='Generate val split frustum data with GT 2D boxes')
-
-    parser.add_argument('--gen_val_rgb_detection', action='store_true',
-                        help='Generate val split frustum data with RGB detection 2D boxes')
-
-    parser.add_argument('--car_only', action='store_true', help='Only generate cars')
-    parser.add_argument('--people_only', action='store_true', help='Only generate peds and cycs')
-    parser.add_argument('--lyft', action='store_true', help='Generate all classes from lyft')
-    parser.add_argument('--save_dir', default=None, type=str, help='data directory to save data')
-
-    args = parser.parse_args()
-
-    np.random.seed(3)
-
-    if args.save_dir is None:
-        save_dir = 'kitti/data/pickle_data'
-    else:
-        save_dir = args.save_dir
-
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
-    if args.car_only:
-        type_whitelist = ['Car']
-        output_prefix = 'frustum_caronly_'
-
-    elif args.people_only:
-        type_whitelist = ['Pedestrian', 'Cyclist']
-        output_prefix = 'frustum_pedcyc_'
-
-    elif args.lyft:
-        type_whitelist = ['car', 'pedestrian', 'animal', 'other_vehicle', 'bus', 'motorcycle', 'truck', 'emergency_vehicle', 'bicycle']
-        output_prefix = 'frustum_lyft_'
-    else:
-        type_whitelist = ['Car', 'Pedestrian', 'Cyclist']
-        output_prefix = 'frustum_carpedcyc_'
-
-    if args.gen_train:
-        extract_frustum_data(
-            os.path.join(BASE_DIR, 'image_sets/train.txt'),
-            'training',
-            os.path.join(save_dir, output_prefix + 'train.pickle'),
-            perturb_box2d=True, augmentX=5,
-            type_whitelist=type_whitelist)
-
-    if args.gen_val:
-        extract_frustum_data(
-            os.path.join(BASE_DIR, 'image_sets/val.txt'),
-            'training',
-            os.path.join(save_dir, output_prefix + 'val.pickle'),
-            perturb_box2d=False, augmentX=1,
-            type_whitelist=type_whitelist)
-
-    if args.gen_val_rgb_detection:
-        extract_frustum_data_rgb_detection(
-            os.path.join(BASE_DIR, 'rgb_detections/rgb_detection_val.txt'),
-            'training',
-            os.path.join(save_dir, output_prefix + 'val_rgb_detection.pickle'),
-            type_whitelist=type_whitelist)

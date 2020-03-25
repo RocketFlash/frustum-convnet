@@ -86,8 +86,6 @@ __C.TRAIN.MOMENTUM = 0.9
 
 __C.TRAIN.WEIGHT_DECAY = 0.0000
 
-# train, val, trainval
-__C.TRAIN.DATASET = 'train'
 
 
 # Model options
@@ -147,6 +145,13 @@ __C.DATA.HEIGHT_HALF = (0.25, 0.5, 1.0, 2.0)
 
 __C.DATA.EXTEND_FROM_DET = False
 
+__C.DATA.TRAIN_DATASET_PATH = ''
+
+__C.DATA.VAL_DATASET_PATH = ''
+
+__C.DATA.VAL_DATASET_PATH = None
+
+__C.DATA.VAL_DATA_RATIO = 0.3
 
 # Loss options
 __C.LOSS = AttrDict()
@@ -161,6 +166,9 @@ __C.LOSS.SIZE_REG_WEIGHT = 20.
 
 
 # MISC options
+
+__C.RANDOM_STATE = 42
+
 __C.RESUME = False
 
 __C.NUM_GPUS = 1
