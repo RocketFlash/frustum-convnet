@@ -281,6 +281,7 @@ def main():
         cfg.DATA.NUM_SAMPLES,
         data_names_list=X_train,
         dataset_path = train_dataset_path,
+        classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=True,
         random_shift=True,
@@ -299,6 +300,7 @@ def main():
         cfg.DATA.NUM_SAMPLES,
         data_names_list=X_val,
         dataset_path = val_dataset_path,
+        classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=False,
         random_shift=False,
@@ -323,7 +325,7 @@ def main():
 
     input_channels = 3 if not cfg.DATA.WITH_EXTRA_FEAT else 4
     NUM_VEC = 0 if cfg.DATA.CAR_ONLY else 3
-    NUM_CLASSES = cfg.MODEL.NUM_CLASSES
+    NUM_CLASSES = len(cfg.MODEL.CLASSES)
 
     model = model_def(input_channels, num_vec=NUM_VEC, num_classes=NUM_CLASSES)
 

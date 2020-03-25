@@ -12,7 +12,7 @@ TRAIN:
 
 MODEL:
   FILE: models/det_base.py
-  NUM_CLASSES: 2
+  CLASSES: ['car', 'pedestrian', 'bicycle']
 
 TEST:
   BATCH_SIZE: 32
@@ -27,7 +27,7 @@ DATA:
   NUM_SAMPLES: 1024
   STRIDE: (0.25, 0.5, 1.0, 2.0)
   HEIGHT_HALF: (0.25, 0.5, 1.0, 2.0)
-  TRAIN_DATASET_PATH: '/home/rauf/datasets/kitti/training/' # Path to training dataset folder
+  TRAIN_DATASET_PATH: '/dataset/kitti_format/lyft/train/' # Path to training dataset folder
   # VAL_DATASET_PATH: # Path to testing dataset folder
   VAL_DATA_RATIO: 0.3 # If VAL_DATASET_PATH is None split training data on train and val
   

@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 class ProviderDataset(Dataset):
 
     def __init__(self, npoints, data_names_list, dataset_path,
+                 classes = ['car'],
                  random_flip=False, random_shift=False,
                  one_hot=True,
                  extend_from_det=False):
@@ -54,7 +55,8 @@ class ProviderDataset(Dataset):
         people_only = cfg.DATA.PEOPLE_ONLY
 
         data = extract_frustum_data(data_names_list, 
-                                    dataset_path=dataset_path)
+                                    dataset_path=dataset_path,
+                                    type_whitelist=classes)
 
         self.id_list = data['id_list']
         self.box2d_list = data['box2d_list']

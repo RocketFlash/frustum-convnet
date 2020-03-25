@@ -95,6 +95,8 @@ __C.MODEL.FILE = ''
 
 __C.MODEL.NUM_CLASSES = 2
 
+__C.MODEL.CLASSES = ['car']
+
 
 # Test options
 __C.TEST = AttrDict()
