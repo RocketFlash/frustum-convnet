@@ -1,12 +1,18 @@
 import numpy as np
 
 class KITTICategory(object):
-   
-    CLASSES = ['Car', 'Pedestrian', 'Cyclist']
+    
+    # Class: car (n_objects: 461510)
+    # l: 4.561454364996091 w: 1.8644759318733815 h: 1.7098814750154965
+    # Class: pedestrian (n_objects: 104329)
+    # l: 0.7883843290673025 w: 0.7125122851218032 h: 1.7814643944351918
+    # Class: twowheels (n_objects: 22488)
+    # l: 1.7687252728482616 w: 0.6156853149645731 h: 1.4566547263222673
+    CLASSES = ['car', 'pedestrian', 'twowheels']
     CLASS_MEAN_SIZE = {
-        'Car': np.array([3.88311640418, 1.62856739989, 1.52563191462]),
-        'Pedestrian': np.array([0.84422524, 0.66068622, 1.76255119]),
-        'Cyclist': np.array([1.76282397, 0.59706367, 1.73698127]),
+        'car': np.array([4.561454364996091, 1.8644759318733815, 1.7098814750154965]),
+        'pedestrian': np.array([0.7883843290673025, 0.7125122851218032, 1.7814643944351918]),
+        'twowheels': np.array([1.7687252728482616, 0.6156853149645731, 1.4566547263222673]),
     }
  
     NUM_SIZE_CLUSTER = len(CLASSES)

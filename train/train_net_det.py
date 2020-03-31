@@ -3,6 +3,10 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]="2, 3"
+
 import sys
 import math
 import shutil
@@ -35,6 +39,7 @@ from configs.config import assert_and_infer_cfg
 from utils.training_states import TrainingStates
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
 from sklearn.model_selection import train_test_split
+import kitti.kitti_util as utils
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -111,7 +116,6 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
     training_states = TrainingStates()
 
     for i, (data_dicts) in enumerate(data_loader):
-
         data_time_meter.update(time.time() - tic)
 
         batch_size = data_dicts['point_cloud'].shape[0]
@@ -119,6 +123,9 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
         data_dicts_var = {key: value.cuda() for key, value in data_dicts.items()}
         optimizer.zero_grad()
 
+        print('I AM HERE!')
+        for data_k, data_v in data_dicts_var.items():
+            print(data_v.shape)
         losses, metrics = model(data_dicts_var)
         loss = losses['total_loss']
 
@@ -201,18 +208,34 @@ def validate(data_loader, model, epoch, logger=None):
 
     return states['IoU_' + str(cfg.IOU_THRESH)]
 
-def get_sample_names(dataset_path):
-    image_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'image_2/') if f.is_file()]
-    lidar_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'velodyne/') if f.is_file()]
-    calib_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'calib/') if f.is_file()]
-    label_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'label_2/') if f.is_file()]
+def get_sample_names(dataset_paths, classes_mapper):
+    total_dataset_names = []
+    for dataset_idx, dataset_path in enumerate(dataset_paths):
+        image_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'image_2/') if f.is_file() and f.name.endswith('.png')]
+        lidar_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'velodyne/') if f.is_file() and f.name.endswith('.bin')]
+        calib_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'calib/') if f.is_file() and f.name.endswith('.txt')]
+        label_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'label_2/') if f.is_file() and f.name.endswith('.txt')]
+        sample_names = list(set(image_names).intersection(lidar_names))
+        sample_names = list(set(sample_names).intersection(calib_names))
+        sample_names = list(set(sample_names).intersection(label_names))
+        
+        if len(sample_names) > 0:
+            for sample_name in sample_names:
+                lines = [line.rstrip() for line in open(os.path.join(dataset_path,'label_2/',sample_name+'.txt'))]
+                for obj_idx, line in enumerate(lines):
+                    line_data = line.split(' ')
+                    line_class = line_data[0]
+                    if line_class in classes_mapper:
+                        object_i = utils.Object3d(line)
+                        box2d = object_i.box2d
+                        if (box2d[3] - box2d[1]) < 25:
+                            continue
+                        total_dataset_names.append((dataset_idx, object_i, sample_name))
+        else:
+            print('Something wrong with data')
+            sys.exit()
+    return total_dataset_names
 
-    sample_names = list(set(image_names+lidar_names+calib_names+label_names))
-    if len(sample_names) > 0:
-        return sample_names
-    else:
-        print('Something wrong with data')
-        sys.exit()
 
 def main():
     # parse arguments
@@ -262,25 +285,44 @@ def main():
     collate_fn = dataset_def.collate_fn
     dataset_def = dataset_def.ProviderDataset
 
-    train_dataset_path = cfg.DATA.TRAIN_DATASET_PATH
-    train_sample_names = get_sample_names(train_dataset_path)
+    classes_mapper = {'car':'car',
+               'pedestrian' : 'pedestrian',
+               'truck': 'car',
+               'bicycle' : 'twowheels',
+               'motorcycle' : 'twowheels',
+               'VEHICLE':'car',
+               'LARGE_VEHICLE':'car',
+               'BICYCLE':'twowheels',
+               'MOTORCYCLE' : 'twowheels',
+               'PEDESTRIAN' : 'pedestrian',
+               'MOPED' : 'twowheels',
+               'Car' : 'car',
+               'Van' : 'car',
+               'Truck' : 'car',
+               'Cyclist': 'twowheels',
+               'Pedestrian' : 'pedestrian'
+               }
 
-    if cfg.DATA.VAL_DATASET_PATH is None:
-        val_dataset_path = train_dataset_path
+    train_dataset_paths = cfg.DATA.TRAIN_DATASET_PATHS
+    train_sample_names = get_sample_names(train_dataset_paths, classes_mapper)
+
+    if cfg.DATA.VAL_DATASET_PATHS is None:
+        val_dataset_paths = train_dataset_paths
         X_train, X_val = train_test_split(train_sample_names, 
-                                          test_size=cfg.DATA.VAL_DATA_RATIO, 
-                                          random_state=cfg.RANDOM_STATE)
+                                            test_size=cfg.DATA.VAL_DATA_RATIO, 
+                                            random_state=cfg.RANDOM_STATE)
     else:
-        val_dataset_path = cfg.DATA.VAL_DATASET_PATH
-        val_sample_names = get_sample_names(val_dataset_path)
+        val_dataset_paths = cfg.DATA.VAL_DATASET_PATHS
+        val_sample_names = get_sample_names(val_dataset_paths, classes_mapper) 
         X_train, X_val = train_sample_names, val_sample_names
     
-    
+    print(len(X_train))
 
     train_dataset = dataset_def(
         cfg.DATA.NUM_SAMPLES,
         data_names_list=X_train,
-        dataset_path = train_dataset_path,
+        classes_mapper=classes_mapper,
+        dataset_paths = train_dataset_paths,
         classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=True,
@@ -299,7 +341,8 @@ def main():
     val_dataset = dataset_def(
         cfg.DATA.NUM_SAMPLES,
         data_names_list=X_val,
-        dataset_path = val_dataset_path,
+        classes_mapper=classes_mapper,
+        dataset_paths = val_dataset_paths,
         classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=False,
@@ -393,7 +436,7 @@ def main():
     MAX_EPOCH = cfg.TRAIN.MAX_EPOCH
 
     for n in range(start_epoch, MAX_EPOCH):
-
+        print('START TRAINING')
         train(train_loader, model, optimizer, lr_scheduler, n, logger_train)
 
         ious_gt = validate(val_loader, model, n, logger_val)

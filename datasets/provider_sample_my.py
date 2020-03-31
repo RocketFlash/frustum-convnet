@@ -31,13 +31,14 @@ from configs.config import cfg
 from kitti.prepare_data_my import extract_frustum_data
 from datasets.data_utils import rotate_pc_along_y, project_image_to_rect, compute_box_3d, extract_pc_in_box3d, roty
 from datasets.dataset_info import KITTICategory
+from kitti_object import kitti_object
 
 logger = logging.getLogger(__name__)
 
 
 class ProviderDataset(Dataset):
 
-    def __init__(self, npoints, data_names_list, dataset_path,
+    def __init__(self, npoints, data_names_list, dataset_paths, classes_mapper,
                  classes = ['car'],
                  random_flip=False, random_shift=False,
                  one_hot=True,
@@ -54,36 +55,48 @@ class ProviderDataset(Dataset):
         car_only = cfg.DATA.CAR_ONLY
         people_only = cfg.DATA.PEOPLE_ONLY
 
-        data = extract_frustum_data(data_names_list, 
-                                    dataset_path=dataset_path,
-                                    type_whitelist=classes)
-
-        self.id_list = data['id_list']
-        self.box2d_list = data['box2d_list']
-        self.box3d_list = data['box3d_list']
-        self.input_list = data['input_list']
-        self.label_list = data['label_list']
-        self.type_list = data['type_list']
-        self.heading_list = data['heading_list']
-        self.size_list = data['box3d_size_list']
-        self.frustum_angle_list = data['frustum_angle_list']
-        self.gt_box2d_list = data['gt_box2d_list']
-        self.calib_list = data['calib_list']
+        self.datasets = [kitti_object(dataset_path) for dataset_path in dataset_paths]
+        self.data_names_list = data_names_list
+        self.classes_mapper = classes_mapper
+        self.classes = classes
 
 
     def __len__(self):
-        return len(self.input_list)
+        return len(self.data_names_list)
 
     def __getitem__(self, index):
+        dataset_idx, object_i, filename = self.data_names_list[index]
+        data = extract_frustum_data(filename,
+                                    object_i=object_i,
+                                    dataset=self.datasets[dataset_idx],
+                                    classes_mapper=self.classes_mapper,
+                                    type_whitelist=self.classes)
+
+        if data is None:
+            return None
+
+        # print(self.data_names_list[index])
+        # print(len(data))
+        id_i = data['id_i']
+        box2d_i = data['box2d_i']
+        box3d_i = data['box3d_i']
+        input_i = data['input_i']
+        label_i = data['label_i']
+        type_i = data['type_i']
+        heading_i = data['heading_i']
+        size_i = data['box3d_size_i']
+        frustum_angle_i = data['frustum_angle_i']
+        gt_box2d_i = data['gt_box2d_i']
+        calib_i = data['calib_i']
 
         rotate_to_center = cfg.DATA.RTC
         with_extra_feat = cfg.DATA.WITH_EXTRA_FEAT
 
         ''' Get index-th element from the picked file dataset. '''
         # ------------------------------ INPUTS ----------------------------
-        rot_angle = self.get_center_view_rot_angle(index)
+        rot_angle = self.get_center_view_rot_angle(frustum_angle_i )
 
-        cls_type = self.type_list[index]
+        cls_type = type_i
         assert cls_type in KITTICategory.CLASSES, cls_type
         size_class = KITTICategory.CLASSES.index(cls_type)
 
@@ -94,9 +107,9 @@ class ProviderDataset(Dataset):
 
         # Get point cloud
         if rotate_to_center:
-            point_set = self.get_center_view_point_set(index)
+            point_set = self.get_center_view_point_set(input_i, frustum_angle_i)
         else:
-            point_set = self.input_list[index]
+            point_set = input_i 
 
         if not with_extra_feat:
             point_set = point_set[:, :3]
@@ -111,34 +124,34 @@ class ProviderDataset(Dataset):
 
         point_set = point_set[choice, :]
 
-        box = self.box2d_list[index]
-        P = self.calib_list[index]['P2'].reshape(3, 4)
+        box = box2d_i
+        P = calib_i['P2'].reshape(3, 4)
 
         ref1, ref2, ref3, ref4 = self.generate_ref(box, P)
 
         if rotate_to_center:
-            ref1 = self.get_center_view(ref1, index)
-            ref2 = self.get_center_view(ref2, index)
-            ref3 = self.get_center_view(ref3, index)
-            ref4 = self.get_center_view(ref4, index)
+            ref1 = self.get_center_view(ref1, frustum_angle_i)
+            ref2 = self.get_center_view(ref2, frustum_angle_i)
+            ref3 = self.get_center_view(ref3, frustum_angle_i)
+            ref4 = self.get_center_view(ref4, frustum_angle_i)
 
         # ------------------------------ LABELS ----------------------------
-        seg = self.label_list[index]
+        seg = label_i
         seg = seg[choice]
 
         # Get center point of 3D box
         if rotate_to_center:
-            box3d_center = self.get_center_view_box3d_center(index)
+            box3d_center = self.get_center_view_box3d_center(box3d_i, frustum_angle_i)
         else:
-            box3d_center = self.get_box3d_center(index)
+            box3d_center = self.get_box3d_center(box3d_i)
 
         # Heading
         if rotate_to_center:
-            heading_angle = self.heading_list[index] - rot_angle
+            heading_angle = heading_i - rot_angle
         else:
-            heading_angle = self.heading_list[index]
+            heading_angle = heading_i
 
-        box3d_size = self.size_list[index]
+        box3d_size = size_i
 
         # Size
         if self.random_flip:
@@ -155,7 +168,7 @@ class ProviderDataset(Dataset):
                 ref4[:, 0] *= -1
 
         if self.random_shift:
-            l, w, h = self.size_list[index]
+            l, w, h = size_i
             dist = np.sqrt(np.sum(l ** 2 + w ** 2))
             shift = np.clip(np.random.randn() * dist * 0.2, -0.5 * dist, 0.5 * dist)
             shift = np.clip(shift + box3d_center[2], 0, 70) - box3d_center[2]
@@ -185,7 +198,7 @@ class ProviderDataset(Dataset):
 
         if self.one_hot:
             data_inputs.update({'one_hot': torch.FloatTensor(one_hot_vec)})
-
+        
         return data_inputs
 
     def generate_labels(self, center, dimension, angle, ref_xyz, P):
@@ -244,50 +257,44 @@ class ProviderDataset(Dataset):
 
         return xyz1_rect, xyz2_rect, xyz3_rect, xyz4_rect
 
-    def get_center_view_rot_angle(self, index):
+    def get_center_view_rot_angle(self, frustum_angle):
         ''' Get the frustum rotation angle, it isshifted by pi/2 so that it
         can be directly used to adjust GT heading angle '''
-        return np.pi / 2.0 + self.frustum_angle_list[index]
+        return np.pi / 2.0 + frustum_angle
 
-    def get_box3d_center(self, index):
+    def get_box3d_center(self, box3d):
         ''' Get the center (XYZ) of 3D bounding box. '''
-        box3d_center = (self.box3d_list[index][0, :] +
-                        self.box3d_list[index][6, :]) / 2.0
+        box3d_center = (box3d[0, :] + box3d[6, :]) / 2.0
         return box3d_center
 
-    def get_center_view_box3d_center(self, index):
+    def get_center_view_box3d_center(self, box3d, frustum_angle):
         ''' Frustum rotation of 3D bounding box center. '''
-        box3d_center = (self.box3d_list[index][0, :] +
-                        self.box3d_list[index][6, :]) / 2.0
-        return rotate_pc_along_y(np.expand_dims(box3d_center, 0),
-                                 self.get_center_view_rot_angle(index)).squeeze()
+        box3d_center = (box3d[0, :] + box3d[6, :]) / 2.0
+        return rotate_pc_along_y(np.expand_dims(box3d_center, 0), self.get_center_view_rot_angle(frustum_angle)).squeeze()
 
-    def get_center_view_box3d(self, index):
+    def get_center_view_box3d(self, box3d, frustum_angle):
         ''' Frustum rotation of 3D bounding box corners. '''
-        box3d = self.box3d_list[index]
+        box3d = box3d
         box3d_center_view = np.copy(box3d)
-        return rotate_pc_along_y(box3d_center_view,
-                                 self.get_center_view_rot_angle(index))
+        return rotate_pc_along_y(box3d_center_view, self.get_center_view_rot_angle(frustum_angle))
 
-    def get_center_view_point_set(self, index):
+    def get_center_view_point_set(self, input_i, frustum_angle):
         ''' Frustum rotation of point clouds.
         NxC points with first 3 channels as XYZ
         z is facing forward, x is left ward, y is downward
         '''
         # Use np.copy to avoid corrupting original data
-        point_set = np.copy(self.input_list[index])
-        return rotate_pc_along_y(point_set,
-                                 self.get_center_view_rot_angle(index))
+        point_set = np.copy(input_i)
+        return rotate_pc_along_y(point_set, self.get_center_view_rot_angle(frustum_angle))
 
-    def get_center_view(self, point_set, index):
+    def get_center_view(self, point_set, frustum_angle):
         ''' Frustum rotation of point clouds.
         NxC points with first 3 channels as XYZ
         z is facing forward, x is left ward, y is downward
         '''
         # Use np.copy to avoid corrupting original data
         point_set = np.copy(point_set)
-        return rotate_pc_along_y(point_set,
-                                 self.get_center_view_rot_angle(index))
+        return rotate_pc_along_y(point_set, self.get_center_view_rot_angle(frustum_angle))
 
 
 def from_prediction_to_label_format(center, angle, size, rot_angle, ref_center=None):
@@ -306,6 +313,8 @@ def from_prediction_to_label_format(center, angle, size, rot_angle, ref_center=N
 
 
 def collate_fn(batch):
+    batch = list(filter (lambda x:x is not None, batch))
+    print(len(batch))
     return default_collate(batch)
 
 

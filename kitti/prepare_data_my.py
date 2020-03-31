@@ -26,7 +26,7 @@ from kitti_object import kitti_object
 from draw_util import get_lidar_in_image_fov
 
 from ops.pybind11.rbbox_iou import bbox_overlaps_2d
-
+from tqdm import tqdm
 
 def in_hull(p, hull):
     from scipy.spatial import Delaunay
@@ -257,15 +257,15 @@ def extract_frustum_det_data(idx_filename, split, output_filename, det_filename,
     print('save in {}'.format(output_filename))
 
 
-def extract_frustum_data(data_names_list, dataset_path=None, 
-                         perturb_box2d=False, augmentX=1, type_whitelist=['Car']):
+def extract_frustum_data(data_name, object_i, dataset, classes_mapper,
+                         perturb_box2d=False, augmentX=1, type_whitelist=['Car'], ):
     ''' Extract point clouds and corresponding annotations in frustums
         defined generated from 2D bounding boxes
         Lidar points and 3d boxes are in *rect camera* coord system
         (as that in 3d box label files)
 
     Input:
-        data_names_list: names list
+        data_names_lists: names list
         split: string, either trianing or testing
         output_filename: string, the name for output .pickle file
         viz: bool, whether to visualize extracted data
@@ -276,118 +276,101 @@ def extract_frustum_data(data_names_list, dataset_path=None,
     Output:
         None (will write a .pickle file to the disk)
     '''
-    if dataset_path is None:
-        dataset = kitti_object(os.path.join(ROOT_DIR, 'data/kitti'))
-    else:
-        dataset = kitti_object(dataset_path)
+    data = {}
+    # id_i = []
+    # box2d_i = []  # [xmin,ymin,xmax,ymax]
+    # box3d_i = []  # (8,3) array in rect camera coord
+    # input_i = []  # channel number = 4, xyz,intensity in rect camera coord
+    # label_i = []  # 1 for roi object, 0 for clutter
+    # type_i = []  # string e.g. Car
+    # heading_i = []  # ry (along y-axis in rect camera coord) radius of
+    # # (cont.) clockwise angle from positive x axis in velo coord.
+    # box3d_size_i = []  # array of l,w,h
+    # frustum_angle_i = []  # angle of 2d box center from pos x-axis
+    # gt_box2d_i = []
+    # calib_i = []
+    
+    # print('------------- ', data_name)
+    calib = dataset.get_calibration(data_name)  # 3 by 4 matrix
+    # objects = dataset.get_label_objects(data_name)
+    pc_velo = dataset.get_lidar(data_name)
+    pc_rect = np.zeros_like(pc_velo)
+    pc_rect[:, 0:3] = calib.project_velo_to_rect(pc_velo[:, 0:3])
+    pc_rect[:, 3] = pc_velo[:, 3]
+    img = dataset.get_image(data_name)
+    if img is None:
+        print('SKIP IMAGE!')
+        return None
+    img_height, img_width, img_channel = img.shape
+    _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov(pc_velo[:, 0:3],
+                                                            calib, 0, 0, img_width, img_height, True)
 
-    id_list = []  # int number
-    box2d_list = []  # [xmin,ymin,xmax,ymax]
-    box3d_list = []  # (8,3) array in rect camera coord
-    input_list = []  # channel number = 4, xyz,intensity in rect camera coord
-    label_list = []  # 1 for roi object, 0 for clutter
-    type_list = []  # string e.g. Car
-    heading_list = []  # ry (along y-axis in rect camera coord) radius of
-    # (cont.) clockwise angle from positive x axis in velo coord.
-    box3d_size_list = []  # array of l,w,h
-    frustum_angle_list = []  # angle of 2d box center from pos x-axis
 
-    gt_box2d_list = []
+    # 2D BOX: Get pts rect backprojected
+    box2d = object_i.box2d
+    for _ in range(augmentX):
+        # Augment data by box2d perturbation
+        if perturb_box2d:
+            xmin, ymin, xmax, ymax = random_shift_box2d(box2d, img_height, img_width, 0.1)
+        else:
+            xmin, ymin, xmax, ymax = box2d
+        box_fov_inds = (pc_image_coord[:, 0] < xmax) & \
+                    (pc_image_coord[:, 0] >= xmin) & \
+                    (pc_image_coord[:, 1] < ymax) & \
+                    (pc_image_coord[:, 1] >= ymin)
+        box_fov_inds = box_fov_inds & img_fov_inds
+        pc_in_box_fov = pc_rect[box_fov_inds, :]
 
-    calib_list = []
+        pc_box_image_coord = pc_image_coord[box_fov_inds]
 
-    pos_cnt = 0
-    all_cnt = 0
-    for data_name in data_names_list:
-        print('------------- ', data_name)
-        calib = dataset.get_calibration(data_name)  # 3 by 4 matrix
-        objects = dataset.get_label_objects(data_name)
-        pc_velo = dataset.get_lidar(data_name)
-        pc_rect = np.zeros_like(pc_velo)
-        pc_rect[:, 0:3] = calib.project_velo_to_rect(pc_velo[:, 0:3])
-        pc_rect[:, 3] = pc_velo[:, 3]
-        img = dataset.get_image(data_name)
-        img_height, img_width, img_channel = img.shape
-        _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov(pc_velo[:, 0:3],
-                                                                 calib, 0, 0, img_width, img_height, True)
+        # Get frustum angle (according to center pixel in 2D BOX)
+        box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
+        uvdepth = np.zeros((1, 3))
+        uvdepth[0, 0:2] = box2d_center
+        uvdepth[0, 2] = 20  # some random depth
+        box2d_center_rect = calib.project_image_to_rect(uvdepth)
+        frustum_angle = -1 * np.arctan2(box2d_center_rect[0, 2],
+                                        box2d_center_rect[0, 0])
+        # 3D BOX: Get pts velo in 3d box
+        obj = object_i
+        box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
+        _, inds = extract_pc_in_box3d(pc_in_box_fov, box3d_pts_3d)
+        label = np.zeros((pc_in_box_fov.shape[0]))
+        label[inds] = 1
 
-        for obj_idx in range(len(objects)):
-            if objects[obj_idx].type not in type_whitelist:
-                continue
+        # Get 3D BOX heading
+        heading_angle = obj.ry
+        # Get 3D BOX size
+        box3d_size = np.array([obj.l, obj.w, obj.h])
 
-            # 2D BOX: Get pts rect backprojected
-            box2d = objects[obj_idx].box2d
-            for _ in range(augmentX):
-                # Augment data by box2d perturbation
-                if perturb_box2d:
-                    xmin, ymin, xmax, ymax = random_shift_box2d(box2d, img_height, img_width, 0.1)
-                else:
-                    xmin, ymin, xmax, ymax = box2d
-                box_fov_inds = (pc_image_coord[:, 0] < xmax) & \
-                               (pc_image_coord[:, 0] >= xmin) & \
-                               (pc_image_coord[:, 1] < ymax) & \
-                               (pc_image_coord[:, 1] >= ymin)
-                box_fov_inds = box_fov_inds & img_fov_inds
-                pc_in_box_fov = pc_rect[box_fov_inds, :]
+        # Reject too far away object or object without points
+        if  np.sum(label) == 0:
+            # print(box2d[3] - box2d[1], np.sum(label))
+            return None
 
-                pc_box_image_coord = pc_image_coord[box_fov_inds]
+        id_i=data_name
+        box2d_i=np.array([xmin, ymin, xmax, ymax])
+        box3d_i=box3d_pts_3d
+        input_i=pc_in_box_fov.astype(np.float32, copy=False)
+        label_i=label
+        type_i=object_i.type
+        heading_i=heading_angle
+        box3d_size_i=box3d_size
+        frustum_angle_i=frustum_angle
 
-                # Get frustum angle (according to center pixel in 2D BOX)
-                box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
-                uvdepth = np.zeros((1, 3))
-                uvdepth[0, 0:2] = box2d_center
-                uvdepth[0, 2] = 20  # some random depth
-                box2d_center_rect = calib.project_image_to_rect(uvdepth)
-                frustum_angle = -1 * np.arctan2(box2d_center_rect[0, 2],
-                                                box2d_center_rect[0, 0])
-                # 3D BOX: Get pts velo in 3d box
-                obj = objects[obj_idx]
-                box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
-                _, inds = extract_pc_in_box3d(pc_in_box_fov, box3d_pts_3d)
-                label = np.zeros((pc_in_box_fov.shape[0]))
-                label[inds] = 1
-
-                # Get 3D BOX heading
-                heading_angle = obj.ry
-                # Get 3D BOX size
-                box3d_size = np.array([obj.l, obj.w, obj.h])
-
-                # Reject too far away object or object without points
-                if (box2d[3] - box2d[1]) < 25 or np.sum(label) == 0:
-                    # print(box2d[3] - box2d[1], np.sum(label))
-                    continue
-
-                id_list.append(data_name)
-                box2d_list.append(np.array([xmin, ymin, xmax, ymax]))
-                box3d_list.append(box3d_pts_3d)
-                input_list.append(pc_in_box_fov.astype(np.float32, copy=False))
-                label_list.append(label)
-                type_list.append(objects[obj_idx].type)
-                heading_list.append(heading_angle)
-                box3d_size_list.append(box3d_size)
-                frustum_angle_list.append(frustum_angle)
-
-                gt_box2d_list.append(box2d)
-                calib_list.append(calib.calib_dict)
-                # collect statistics
-                pos_cnt += np.sum(label)
-                all_cnt += pc_in_box_fov.shape[0]
-
-    print('total_objects %d' % len(id_list))
-    print('Average pos ratio: %f' % (pos_cnt / float(all_cnt)))
-    print('Average npoints: %f' % (float(all_cnt) / len(id_list)))
-
-    data = { 'id_list': id_list,
-             'box2d_list' : box2d_list, 
-             'box3d_list': box3d_list, 
-             'input_list':input_list, 
-             'label_list':label_list,
-             'type_list':type_list, 
-             'heading_list':heading_list, 
-             'box3d_size_list':box3d_size_list, 
-             'frustum_angle_list':frustum_angle_list,
-             'gt_box2d_list':gt_box2d_list, 
-             'calib_list':calib_list}
+        gt_box2d_i=box2d
+        calib_i=calib.calib_dict
+        data = { 'id_i': id_i,
+                    'box2d_i' : box2d_i, 
+                    'box3d_i': box3d_i, 
+                    'input_i':input_i, 
+                    'label_i':label_i,
+                    'type_i':classes_mapper[type_i], 
+                    'heading_i':heading_i, 
+                    'box3d_size_i':box3d_size_i, 
+                    'frustum_angle_i':frustum_angle_i,
+                    'gt_box2d_i':gt_box2d_i, 
+                    'calib_i':calib_i}
     return data
 
    
