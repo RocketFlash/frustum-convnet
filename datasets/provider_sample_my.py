@@ -64,6 +64,15 @@ class ProviderDataset(Dataset):
     def __len__(self):
         return len(self.data_names_list)
 
+    def get_frustum_data(self, index):
+        dataset_idx, object_i, filename = self.data_names_list[index]
+        data = extract_frustum_data(filename,
+                                    object_i=object_i,
+                                    dataset=self.datasets[dataset_idx],
+                                    classes_mapper=self.classes_mapper,
+                                    type_whitelist=self.classes)
+        return data
+
     def __getitem__(self, index):
         dataset_idx, object_i, filename = self.data_names_list[index]
         data = extract_frustum_data(filename,
@@ -314,7 +323,7 @@ def from_prediction_to_label_format(center, angle, size, rot_angle, ref_center=N
 
 def collate_fn(batch):
     batch = list(filter (lambda x:x is not None, batch))
-    print(len(batch))
+    # print(len(batch))
     return default_collate(batch)
 
 

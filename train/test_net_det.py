@@ -3,6 +3,10 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]="2, 3"
+
 import sys
 import math
 import shutil
@@ -36,9 +40,10 @@ from configs.config import assert_and_infer_cfg
 from utils.training_states import TrainingStates
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
 
-from datasets.provider_sample import from_prediction_to_label_format
+from datasets.provider_sample_my import from_prediction_to_label_format
 
 from ops.pybind11.rbbox_iou import cube_nms_np
+import kitti.kitti_util as utils
 
 
 def parse_args():
@@ -256,10 +261,13 @@ def test(model, test_dataset, test_loader, output_filename, result_dir=None):
             single_headings = heading_preds[b, fg_idx]
             single_sizes = size_preds[b, fg_idx]
             single_scores = cls_probs[b, fg_idx, 1] + rgb_probs[b]
-
-            data_idx = test_dataset.id_list[load_batch_size * i + b]
-            class_type = test_dataset.type_list[load_batch_size * i + b]
-            box2d = test_dataset.box2d_list[load_batch_size * i + b]
+            
+            data = test_dataset.get_frustum_data(load_batch_size * i + b)
+            if data is None:
+                continue
+            data_idx = data['id_i']
+            class_type = data['type_i']
+            box2d = data['box2d_i']
             rot_angle = rot_angles[b]
             ref_center = ref_centers[b]
 
@@ -300,6 +308,33 @@ def test(model, test_dataset, test_loader, output_filename, result_dir=None):
         logger.info('results file save in  {}'.format(result_dir))
         os.system('cd %s && zip -q -r ../results.zip *' % (result_dir))
 
+def get_sample_names(dataset_paths, classes_mapper):
+    total_dataset_names = []
+    for dataset_idx, dataset_path in enumerate(dataset_paths):
+        image_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'image_2/') if f.is_file() and f.name.endswith('.png')]
+        lidar_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'velodyne/') if f.is_file() and f.name.endswith('.bin')]
+        calib_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'calib/') if f.is_file() and f.name.endswith('.txt')]
+        label_names = [f.name.split('.')[0] for f in os.scandir(dataset_path + 'label_2/') if f.is_file() and f.name.endswith('.txt')]
+        sample_names = list(set(image_names).intersection(lidar_names))
+        sample_names = list(set(sample_names).intersection(calib_names))
+        sample_names = list(set(sample_names).intersection(label_names))
+        
+        if len(sample_names) > 0:
+            for sample_name in sample_names:
+                lines = [line.rstrip() for line in open(os.path.join(dataset_path,'label_2/',sample_name+'.txt'))]
+                for obj_idx, line in enumerate(lines):
+                    line_data = line.split(' ')
+                    line_class = line_data[0]
+                    if line_class in classes_mapper:
+                        object_i = utils.Object3d(line)
+                        box2d = object_i.box2d
+                        if (box2d[3] - box2d[1]) < 25:
+                            continue
+                        total_dataset_names.append((dataset_idx, object_i, sample_name))
+        else:
+            print('Something wrong with data')
+            sys.exit()
+    return total_dataset_names
 
 if __name__ == '__main__':
 
@@ -333,18 +368,39 @@ if __name__ == '__main__':
     collate_fn = dataset_def.collate_fn
     dataset_def = dataset_def.ProviderDataset
 
+    classes_mapper = {'car':'car',
+               'pedestrian' : 'pedestrian',
+               'truck': 'car',
+               'bicycle' : 'twowheels',
+               'motorcycle' : 'twowheels',
+               'VEHICLE':'car',
+               'LARGE_VEHICLE':'car',
+               'BICYCLE':'twowheels',
+               'MOTORCYCLE' : 'twowheels',
+               'PEDESTRIAN' : 'pedestrian',
+               'MOPED' : 'twowheels',
+               'Car' : 'car',
+               'Van' : 'car',
+               'Truck' : 'car',
+               'Cyclist': 'twowheels',
+               'Pedestrian' : 'pedestrian'
+               }
+
+    test_dataset_paths = cfg.DATA.TEST_DATASET_PATHS
+    test_sample_names = get_sample_names(test_dataset_paths, classes_mapper)
+
     # overwritten_data_path = None
     # if cfg.OVER_WRITE_TEST_FILE and cfg.FROM_RGB_DET:
     #     overwritten_data_path = cfg.OVER_WRITE_TEST_FILE
-
     test_dataset = dataset_def(
         cfg.DATA.NUM_SAMPLES,
-        split=cfg.TEST.DATASET,
-        random_flip=False,
-        random_shift=False,
+        data_names_list=test_sample_names,
+        classes_mapper=classes_mapper,
+        dataset_paths = test_dataset_paths,
+        classes=cfg.MODEL.CLASSES,
         one_hot=True,
-        from_rgb_detection=cfg.FROM_RGB_DET,
-        overwritten_data_path=cfg.OVER_WRITE_TEST_FILE)
+        random_flip=False,
+        random_shift=False)
 
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
@@ -355,9 +411,27 @@ if __name__ == '__main__':
         drop_last=False,
         collate_fn=collate_fn)
 
+    # test_dataset = dataset_def(
+    #     cfg.DATA.NUM_SAMPLES,
+    #     split=cfg.TEST.DATASET,
+    #     random_flip=False,
+    #     random_shift=False,
+    #     one_hot=True,
+    #     from_rgb_detection=cfg.FROM_RGB_DET,
+    #     overwritten_data_path=cfg.OVER_WRITE_TEST_FILE)
+
+    # test_loader = torch.utils.data.DataLoader(
+    #     test_dataset,
+    #     batch_size=cfg.TEST.BATCH_SIZE,
+    #     shuffle=False,
+    #     num_workers=cfg.NUM_WORKERS,
+    #     pin_memory=True,
+    #     drop_last=False,
+    #     collate_fn=collate_fn)
+
     input_channels = 3 if not cfg.DATA.WITH_EXTRA_FEAT else 4
     NUM_VEC = 0 if cfg.DATA.CAR_ONLY else 3
-    NUM_CLASSES = cfg.MODEL.NUM_CLASSES
+    NUM_CLASSES = len(cfg.MODEL.CLASSES)
 
     model = model_def(input_channels, num_vec=NUM_VEC, num_classes=NUM_CLASSES)
 

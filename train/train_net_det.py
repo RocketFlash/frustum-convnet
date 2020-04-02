@@ -114,7 +114,7 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
     loader_size = len(data_loader)
 
     training_states = TrainingStates()
-
+    time_training_start = time.time()
     for i, (data_dicts) in enumerate(data_loader):
         data_time_meter.update(time.time() - tic)
 
@@ -123,9 +123,6 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
         data_dicts_var = {key: value.cuda() for key, value in data_dicts.items()}
         optimizer.zero_grad()
 
-        print('I AM HERE!')
-        for data_k, data_v in data_dicts_var.items():
-            print(data_v.shape)
         losses, metrics = model(data_dicts_var)
         loss = losses['total_loss']
 
@@ -143,7 +140,9 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
         tic = time.time()
 
         if (i + 1) % cfg.disp == 0 or (i + 1) == loader_size:
-
+            time_training_end = time.time()
+            print('Time taken for 100 steps: {}'.format(time_training_end-time_training_start))
+            time_training_start = time.time()
             states = training_states.get_states(avg=False)
 
             states_str = training_states.format_states(states)

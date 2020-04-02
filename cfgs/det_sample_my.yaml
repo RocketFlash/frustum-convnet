@@ -1,5 +1,5 @@
 TRAIN:
-  BATCH_SIZE: 32
+  BATCH_SIZE: 256
   START_EPOCH: 0
   MAX_EPOCH: 50
   OPTIMIZER: adam
@@ -9,14 +9,16 @@ TRAIN:
   LR_STEPS: [20]
   MOMENTUM: 0.9
   WEIGHT_DECAY: 0.0001
+  WEIGHTS: 'output/car_train/model_best.pth'
 
 MODEL:
   FILE: models/det_base.py
   CLASSES: ['car', 'pedestrian', 'twowheels']
 
 TEST:
-  BATCH_SIZE: 32
+  BATCH_SIZE: 512
   METHOD: nms
+  WEIGHTS: 'output/car_train/model_best.pth'
   
 DATA:
   FILE: datasets/provider_sample_my.py
@@ -27,20 +29,22 @@ DATA:
   NUM_SAMPLES: 1024
   STRIDE: (0.25, 0.5, 1.0, 2.0)
   HEIGHT_HALF: (0.25, 0.5, 1.0, 2.0)
-  TRAIN_DATASET_PATHS: ['/dataset/kitti_format/kitti/training/'] # Paths to training dataset folders
-  # TRAIN_DATASET_PATHS: ['/dataset/kitti_format/lyft/train/',
-  #                       '/dataset/kitti_format/kitti/training/',
-  #                       '/dataset/kitti_format/argo/train/'] # Paths to training dataset folders
+  # TRAIN_DATASET_PATHS: ['/dataset/kitti_format/kitti/training/'] # Paths to training dataset folders
+  TRAIN_DATASET_PATHS: ['/dataset/kitti_format/lyft/train/',
+                        '/dataset/kitti_format/kitti/training/',
+                        '/dataset/kitti_format/argo/train/'] # Paths to training dataset folders
+  TEST_DATASET_PATHS: ['/dataset/kitti_format/lyft/test/',
+                        '/dataset/kitti_format/argo/val/'] # Paths to training dataset folders
   # VAL_DATASET_PATHS: # Path to testing dataset folder
   VAL_DATA_RATIO: 0.3 # If VAL_DATASET_PATH is None split training data on train and val
   
 
 RANDOM_STATE: 42
-RESUME: False
-NUM_GPUS: 1
+RESUME: True
+NUM_GPUS: 2
 OUTPUT_DIR: 'output/car_train'
 SAVE_SUB_DIR: 'val_nms'
 USE_TFBOARD: True
-NUM_WORKERS: 4
+NUM_WORKERS: 16
 FROM_RGB_DET: True
 disp: 100
