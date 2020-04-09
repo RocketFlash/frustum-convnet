@@ -28,7 +28,7 @@ if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
 from configs.config import cfg
-from kitti.prepare_data_my import extract_frustum_data
+from kitti.prepare_data_my import extract_frustum_data, extract_pc, extract_image
 from datasets.data_utils import rotate_pc_along_y, project_image_to_rect, compute_box_3d, extract_pc_in_box3d, roty
 from datasets.dataset_info import KITTICategory
 from kitti_object import kitti_object
@@ -73,6 +73,16 @@ class ProviderDataset(Dataset):
                                     type_whitelist=self.classes)
         return data
 
+    def get_pointcloud(self, index):
+        dataset_idx, object_i, filename = self.data_names_list[index]
+        pc = extract_pc(filename, dataset=self.datasets[dataset_idx])
+        return pc
+
+    def get_image(self, index):
+        dataset_idx, object_i, filename = self.data_names_list[index]
+        img = extract_image(filename, dataset=self.datasets[dataset_idx])
+        return img
+
     def __getitem__(self, index):
         dataset_idx, object_i, filename = self.data_names_list[index]
         data = extract_frustum_data(filename,
@@ -82,8 +92,8 @@ class ProviderDataset(Dataset):
                                     type_whitelist=self.classes)
 
         if data is None:
+            # print('SKIP SAMPLE!')
             return None
-
         # print(self.data_names_list[index])
         # print(len(data))
         id_i = data['id_i']

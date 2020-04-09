@@ -32,6 +32,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 
+KITTI_EVAL_PATH = '../kitti-object-eval-python/'
+sys.path.append(KITTI_EVAL_PATH)
+
+import kitti_common as kitti
+from eval import get_official_eval_result_my, get_coco_eval_result
+
 from configs.config import cfg
 from configs.config import merge_cfg_from_file
 from configs.config import merge_cfg_from_list
@@ -39,6 +45,7 @@ from configs.config import assert_and_infer_cfg
 
 from utils.training_states import TrainingStates
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
+from utils.plot_utils import render_sample_3d_interactive
 
 from datasets.provider_sample_my import from_prediction_to_label_format
 
@@ -86,7 +93,7 @@ def fill_files(output_dir, to_fill_filename_list):
             fout.close()
 
 
-def write_detection_results(output_dir, det_results):
+def write_detection_results(output_dir, gt_dirs, det_results):
 
     results = {}  # map from idx to list of strings, each string is a line (without \n)
     for idx in det_results:
@@ -108,7 +115,7 @@ def write_detection_results(output_dir, det_results):
     os.mkdir(result_dir)
 
     for idx in results:
-        pred_filename = os.path.join(result_dir, '%06d.txt' % (idx))
+        pred_filename = os.path.join(result_dir, '{}.txt'.format(idx))
         fout = open(pred_filename, 'w')
         for line in results[idx]:
             fout.write(line + '\n')
@@ -116,13 +123,12 @@ def write_detection_results(output_dir, det_results):
 
     # Make sure for each frame (no matter if we have measurement for that frame),
     # there is a TXT file
-    idx_path = 'kitti/image_sets/%s.txt' % cfg.TEST.DATASET
+    for gt_dir in gt_dirs:
+        to_fill_filename_list = [f.name for f in os.scandir(gt_dir + 'label_2/') if f.is_file() and f.name.endswith('.txt')]
+        fill_files(result_dir, to_fill_filename_list)
 
-    to_fill_filename_list = [line.rstrip() + '.txt' for line in open(idx_path)]
-    fill_files(result_dir, to_fill_filename_list)
 
-
-def write_detection_results_nms(output_dir, det_results, threshold=cfg.TEST.THRESH):
+def write_detection_results_nms(output_dir, gt_dirs, det_results, threshold=cfg.TEST.THRESH):
 
     nms_results = {}
     for idx in det_results:
@@ -144,24 +150,24 @@ def write_detection_results_nms(output_dir, det_results, threshold=cfg.TEST.THRE
             # if class_type not in nms_results[idx]:
             #     nms_results[idx][class_type] = []
             nms_results[idx][class_type] = dets_keep
-
-    write_detection_results(output_dir, nms_results)
-
-
-def evaluate_py_wrapper(output_dir, async_eval=False):
-    # official evaluation  
-    gt_dir = 'data/kitti/training/label_2/'
-    command_line = './train/kitti_eval/evaluate_object_3d_offline %s %s' % (gt_dir, output_dir)
-    command_line += ' 2>&1 | tee -a  %s/log_test.txt' % (os.path.join(output_dir))
-    print(command_line)
-    if async_eval:
-        subprocess.Popen(command_line, shell=True)
-    else:
-        if os.system(command_line) != 0:
-            assert False
+    write_detection_results(output_dir, gt_dirs, nms_results)
 
 
-def evaluate_cuda_wrapper(result_dir, image_set='val', async_eval=False):
+def evaluate_py_wrapper(output_dir, gt_dirs, async_eval=False):
+    # official evaluation
+    for gt_dir in gt_dirs:
+        gt_dir_labels = os.path.join(gt_dir, 'label_2/')
+        command_line = './train/kitti_eval/evaluate_object_3d_offline %s %s' % (gt_dir_labels, output_dir)
+        command_line += ' 2>&1 | tee -a  %s/log_test.txt' % (os.path.join(output_dir))
+        print(command_line)
+        if async_eval:
+            subprocess.Popen(command_line, shell=True)
+        else:
+            if os.system(command_line) != 0:
+                assert False
+
+
+def evaluate_cuda_wrapper(result_dir, gt_dirs, classes_mapper, image_set='val', async_eval=False):
     # https://github.com/traveller59/kitti-object-eval-python
     # Sometime we can not get the same result as official evaluation for car BEV HARD detection (+-6%)
     if cfg.DATA.CAR_ONLY:
@@ -171,22 +177,29 @@ def evaluate_cuda_wrapper(result_dir, image_set='val', async_eval=False):
     else:
         classes_idx = '0,1,2'
 
-    gt_dir = 'data/kitti/training/label_2/'
-    label_split_file = './data/kitti/%s.txt' % image_set
-    CUDA_ID = 'CUDA_VISIBLE_DEVICES=0 '
-    command_line = CUDA_ID + ('python ../kitti-object-eval-python/evaluate.py evaluate --label_path=%s ' +
-                              '--result_path=%s --label_split_file=%s --current_class=%s --coco=False') % (
-        gt_dir, result_dir, label_split_file, classes_idx)
-    command_line += ' 2>&1 | tee -a  %s/log_test_new.txt' % (os.path.join(result_dir, '..'))
-    print(command_line)
-    if async_eval:
-        subprocess.Popen(command_line, shell=True)
-    else:
-        if os.system(command_line) != 0:
-            assert False
+    
+
+    for gt_dir in gt_dirs:
+        
+        gt_dir_labels = os.path.join(gt_dir, 'label_2')
+        gt_annos = kitti.get_label_annos(gt_dir_labels,classes_mapper)
+        result_annos = kitti.get_label_annos(result_dir,classes_mapper)
+        print(get_official_eval_result_my(gt_annos, result_annos, [0,1]))
+
+        # CUDA_ID = 'CUDA_VISIBLE_DEVICES=3'
+        # command_line = CUDA_ID + ('python ../kitti-object-eval-python/evaluate.py evaluate --label_path=%s ' +
+        #                         '--result_path=%s --current_class=%s --coco=False') % (
+        #     gt_dir_labels, result_dir, classes_idx)
+        # command_line += ' 2>&1 | tee -a  %s/log_test_new.txt' % (os.path.join(result_dir, '..'))
+        # print(command_line)
+        # if async_eval:
+        #     subprocess.Popen(command_line, shell=True)
+        # else:
+        #     if os.system(command_line) != 0:
+        #         assert False
 
 
-def test(model, test_dataset, test_loader, output_filename, result_dir=None):
+def test(model, test_dataset, test_loader, output_filename, classes_mapper, result_dir=None):
 
     load_batch_size = test_loader.batch_size
     num_batches = len(test_loader)
@@ -198,6 +211,9 @@ def test(model, test_dataset, test_loader, output_filename, result_dir=None):
     det_results = {}
 
     for i, data_dicts in enumerate(test_loader):
+
+        if i >= 1:
+            break
 
         point_clouds = data_dicts['point_cloud']
         rot_angles = data_dicts['rot_angle']
@@ -263,10 +279,13 @@ def test(model, test_dataset, test_loader, output_filename, result_dir=None):
             single_scores = cls_probs[b, fg_idx, 1] + rgb_probs[b]
             
             data = test_dataset.get_frustum_data(load_batch_size * i + b)
+            pc_full = test_dataset.get_pointcloud(load_batch_size * i + b)
+            img_full = test_dataset.get_image(load_batch_size * i + b)
             if data is None:
                 continue
             data_idx = data['id_i']
             class_type = data['type_i']
+            full_pc = data['input_i']
             box2d = data['box2d_i']
             rot_angle = rot_angles[b]
             ref_center = ref_centers[b]
@@ -276,14 +295,21 @@ def test(model, test_dataset, test_loader, output_filename, result_dir=None):
 
             if class_type not in det_results[data_idx]:
                 det_results[data_idx][class_type] = []
-
+            outputs_i = []
+            print(data_idx)
             for n in range(num_pred):
                 x1, y1, x2, y2 = box2d
                 score = single_scores[n]
                 h, w, l, tx, ty, tz, ry = from_prediction_to_label_format(
                     single_centers[n], single_headings[n], single_sizes[n], rot_angle, ref_center)
-                output = [x1, y1, x2, y2, tx, ty, tz, h, w, l, ry, score]
+                output = [x1, y1, x2,  y2, tx, ty, tz, h, w, l, ry, score]
+                print(output)
+                outputs_i.append(output)
                 det_results[data_idx][class_type].append(output)
+            
+            print(type(pc_full))
+            print(pc_full.shape)
+            render_sample_3d_interactive(pc_full, img_full, outputs_i, save_name=data_idx)
 
     num_images = len(det_results)
 
@@ -292,21 +318,7 @@ def test(model, test_dataset, test_loader, output_filename, result_dir=None):
     logging.info('avg_per_object:%0.3f' % (fw_time_meter.avg / load_batch_size))
     logging.info('avg_per_image:%.3f' % (fw_time_meter.avg * len(test_loader) / num_images))
 
-    # Write detection results for KITTI evaluation
-
-    if cfg.TEST.METHOD == 'nms':
-        write_detection_results_nms(result_dir, det_results)
-    else:
-        write_detection_results(result_dir, det_results)
-
-    output_dir = os.path.join(result_dir, 'data')
-
-    if 'test' not in cfg.TEST.DATASET:
-        evaluate_py_wrapper(result_dir)
-        # evaluate_cuda_wrapper(output_dir, cfg.TEST.DATASET)
-    else:
-        logger.info('results file save in  {}'.format(result_dir))
-        os.system('cd %s && zip -q -r ../results.zip *' % (result_dir))
+    return det_results
 
 def get_sample_names(dataset_paths, classes_mapper):
     total_dataset_names = []
@@ -461,4 +473,38 @@ if __name__ == '__main__':
     if not os.path.exists(result_folder):
         os.makedirs(result_folder)
 
-    test(model, test_dataset, test_loader, save_file_name, result_folder)
+    det_results = test(model, test_dataset, test_loader, save_file_name, classes_mapper)
+
+    # Write detection results for KITTI evaluation
+    print(len(det_results))
+    if cfg.TEST.METHOD == 'nms':
+        write_detection_results_nms(result_folder, cfg.DATA.TEST_DATASET_PATHS, det_results)
+    else:
+        write_detection_results(result_folder, cfg.DATA.TEST_DATASET_PATHS, det_results)
+
+    output_dir = os.path.join(result_folder, 'data')
+
+    if 'test' not in cfg.TEST.DATASET:
+        # evaluate_py_wrapper(result_folder, cfg.DATA.TEST_DATASET_PATHS)
+        evaluate_cuda_wrapper(output_dir,cfg.DATA.TEST_DATASET_PATHS, classes_mapper)
+    else:
+        logger.info('results file save in  {}'.format(result_folder))
+        os.system('cd %s && zip -q -r ../results.zip *' % (result_folder))
+
+
+# car AP(Average Precision)@0.70, 0.70, 0.70:
+# bbox AP:11.46, 11.47, 11.47
+# bev  AP:0.10, 0.10, 0.10
+# 3d   AP:0.01, 0.01, 0.01
+# car AP(Average Precision)@0.70, 0.50, 0.50:
+# bbox AP:11.46, 11.47, 11.47
+# bev  AP:0.19, 0.19, 0.19
+# 3d   AP:0.05, 0.05, 0.05
+# pedestrian AP(Average Precision)@0.50, 0.50, 0.50:
+# bbox AP:4.55, 4.55, 4.55
+# bev  AP:0.03, 0.03, 0.03
+# 3d   AP:0.02, 0.02, 0.02
+# pedestrian AP(Average Precision)@0.50, 0.25, 0.25:
+# bbox AP:4.55, 4.55, 4.55
+# bev  AP:0.61, 0.61, 0.61
+# 3d   AP:0.08, 0.08, 0.08

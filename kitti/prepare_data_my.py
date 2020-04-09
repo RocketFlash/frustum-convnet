@@ -256,6 +256,25 @@ def extract_frustum_det_data(idx_filename, split, output_filename, det_filename,
 
     print('save in {}'.format(output_filename))
 
+def extract_pc(data_name, dataset):
+    calib = dataset.get_calibration(data_name)  # 3 by 4 matrix
+    pc_velo = dataset.get_lidar(data_name)
+    # pc_rect = np.zeros_like(pc_velo)
+    # pc_rect[:, 0:3] = calib.project_velo_to_rect(pc_velo[:, 0:3])
+    # pc_rect[:, 3] = pc_velo[:, 3]
+    # img = dataset.get_image(data_name)
+    # if img is None:
+    #     print('SKIP IMAGE!')
+    #     return None
+    # img_height, img_width, img_channel = img.shape
+    # _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov(pc_velo[:, 0:3],
+    #                                                         calib, 0, 0, img_width, img_height, True)
+
+    return pc_velo
+
+def extract_image(data_name, dataset):
+    img = dataset.get_image(data_name)
+    return img
 
 def extract_frustum_data(data_name, object_i, dataset, classes_mapper,
                          perturb_box2d=False, augmentX=1, type_whitelist=['Car'], ):

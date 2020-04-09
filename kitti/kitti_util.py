@@ -92,7 +92,7 @@ class Calibration(object):
         TODO(rqi): do matrix multiplication only once for each projection.
     '''
 
-    def __init__(self, calib_filepath, calib_dict=None, from_video=False):
+    def __init__(self, calib_filepath, calib_dict=None, from_video=False, velo_to_cam_name=None):
 
         if calib_dict is None:
             assert os.path.exists(calib_filepath), calib_filepath
@@ -108,7 +108,10 @@ class Calibration(object):
         self.P = calibs['P2']
         self.P = np.reshape(self.P, [3, 4])
         # Rigid transform from Velodyne coord to reference camera coord
-        self.V2C = calibs['Tr_velo_to_cam']
+        if velo_to_cam_name is None:
+            self.V2C = calibs['Tr_velo_to_cam']
+        else:
+            self.V2C = calibs[velo_to_cam_name]
         self.V2C = np.reshape(self.V2C, [3, 4])
         self.C2V = inverse_rigid_trans(self.V2C)
         # Rotation from reference camera coord to rect camera coord
