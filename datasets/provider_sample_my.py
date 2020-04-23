@@ -95,7 +95,6 @@ class ProviderDataset(Dataset):
             # print('SKIP SAMPLE!')
             return None
         # print(self.data_names_list[index])
-        # print(len(data))
         id_i = data['id_i']
         box2d_i = data['box2d_i']
         box3d_i = data['box3d_i']
@@ -333,7 +332,6 @@ def from_prediction_to_label_format(center, angle, size, rot_angle, ref_center=N
 
 def collate_fn(batch):
     batch = list(filter (lambda x:x is not None, batch))
-    # print(len(batch))
     return default_collate(batch)
 
 

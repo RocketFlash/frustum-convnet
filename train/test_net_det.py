@@ -242,6 +242,7 @@ def test(model, test_dataset, test_loader, output_filename, classes_mapper, resu
         tic = time.time()
         with torch.no_grad():
             outputs = model(data_dicts_var)
+            print(outputs[0].shape)
 
         cls_probs, center_preds, heading_preds, size_preds = outputs
 
@@ -296,20 +297,14 @@ def test(model, test_dataset, test_loader, output_filename, classes_mapper, resu
             if class_type not in det_results[data_idx]:
                 det_results[data_idx][class_type] = []
             outputs_i = []
-            print(data_idx)
             for n in range(num_pred):
                 x1, y1, x2, y2 = box2d
                 score = single_scores[n]
                 h, w, l, tx, ty, tz, ry = from_prediction_to_label_format(
                     single_centers[n], single_headings[n], single_sizes[n], rot_angle, ref_center)
                 output = [x1, y1, x2,  y2, tx, ty, tz, h, w, l, ry, score]
-                print(output)
                 outputs_i.append(output)
                 det_results[data_idx][class_type].append(output)
-            
-            print(type(pc_full))
-            print(pc_full.shape)
-            render_sample_3d_interactive(pc_full, img_full, outputs_i, save_name=data_idx)
 
     num_images = len(det_results)
 

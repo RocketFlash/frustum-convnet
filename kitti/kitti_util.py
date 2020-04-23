@@ -60,7 +60,7 @@ class Object3d(object):
 
 
 class Calibration(object):
-    ''' Calibration matrices and utils
+    """ Calibration matrices and utils
         3d XYZ in <label>.txt are in rect camera coord.
         2d box xy are in image2 coord
         Points in <lidar>.bin are in Velodyne coord.
@@ -90,32 +90,31 @@ class Calibration(object):
         Ref (KITTI paper): http://www.cvlibs.net/publications/Geiger2013IJRR.pdf
 
         TODO(rqi): do matrix multiplication only once for each projection.
-    '''
+    """
 
-    def __init__(self, calib_filepath, calib_dict=None, from_video=False, velo_to_cam_name=None):
-
-        if calib_dict is None:
-            assert os.path.exists(calib_filepath), calib_filepath
-            if from_video:
-                calibs = self.read_calib_from_video(calib_filepath)
-            else:
-                calibs = self.read_calib_file(calib_filepath)
+    def __init__(self, calib_filepath, from_video=False, cam_idx=None):
+        if from_video:
+            calibs = self.read_calib_from_video(calib_filepath)
         else:
-            calibs = calib_dict
+            calibs = self.read_calib_file(calib_filepath)
 
         self.calib_dict = calibs
-        # Projection matrix from rect camera coord to image2 coord
-        self.P = calibs['P2']
-        self.P = np.reshape(self.P, [3, 4])
         # Rigid transform from Velodyne coord to reference camera coord
-        if velo_to_cam_name is None:
+        if cam_idx is None:
+            # Projection matrix from rect camera coord to image2 coord
+            self.P = calibs["P2"]
             self.V2C = calibs['Tr_velo_to_cam']
+            self.V2C = np.reshape(self.V2C, [3, 4])
         else:
-            self.V2C = calibs[velo_to_cam_name]
-        self.V2C = np.reshape(self.V2C, [3, 4])
+            self.P = calibs['P{}'.format(cam_idx)]
+            self.V2C = calibs['Tr_velo_to_cam_{}'.format(cam_idx)]
+            self.V2C = np.reshape(self.V2C, [4, 4])
+            self.V2C = self.V2C[:3,:]
+        self.P = np.reshape(self.P, [3, 4])
+
         self.C2V = inverse_rigid_trans(self.V2C)
         # Rotation from reference camera coord to rect camera coord
-        self.R0 = calibs['R0_rect']
+        self.R0 = calibs["R0_rect"]
         self.R0 = np.reshape(self.R0, [3, 3])
 
         # Camera intrinsics and extrinsics
@@ -123,20 +122,20 @@ class Calibration(object):
         self.c_v = self.P[1, 2]
         self.f_u = self.P[0, 0]
         self.f_v = self.P[1, 1]
-        self.b_x = self.P[0, 3] / (-self.f_u)  # relative
-        self.b_y = self.P[1, 3] / (-self.f_v)
+        self.b_x = self.P[0, 3] / (-self.f_u)
+        self.b_y = self.P[1, 3] / (-self.f_v) 
 
     def read_calib_file(self, filepath):
-        ''' Read in a calibration file and parse into a dictionary.
+        """ Read in a calibration file and parse into a dictionary.
         Ref: https://github.com/utiasSTARS/pykitti/blob/master/pykitti/utils.py
-        '''
+        """
         data = {}
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             for line in f.readlines():
                 line = line.rstrip()
                 if len(line) == 0:
                     continue
-                key, value = line.split(':', 1)
+                key, value = line.split(":", 1)
                 # The only non-float values in these files are dates, which
                 # we don't care about anyway
                 try:
@@ -147,24 +146,28 @@ class Calibration(object):
         return data
 
     def read_calib_from_video(self, calib_root_dir):
-        ''' Read calibration for camera 2 from video calib files.
+        """ Read calibration for camera 2 from video calib files.
             there are calib_cam_to_cam and calib_velo_to_cam under the calib_root_dir
-        '''
+        """
         data = {}
-        cam2cam = self.read_calib_file(os.path.join(calib_root_dir, 'calib_cam_to_cam.txt'))
-        velo2cam = self.read_calib_file(os.path.join(calib_root_dir, 'calib_velo_to_cam.txt'))
+        cam2cam = self.read_calib_file(
+            os.path.join(calib_root_dir, "calib_cam_to_cam.txt")
+        )
+        velo2cam = self.read_calib_file(
+            os.path.join(calib_root_dir, "calib_velo_to_cam.txt")
+        )
         Tr_velo_to_cam = np.zeros((3, 4))
-        Tr_velo_to_cam[0:3, 0:3] = np.reshape(velo2cam['R'], [3, 3])
-        Tr_velo_to_cam[:, 3] = velo2cam['T']
-        data['Tr_velo_to_cam'] = np.reshape(Tr_velo_to_cam, [12])
-        data['R0_rect'] = cam2cam['R_rect_00']
-        data['P2'] = cam2cam['P_rect_02']
+        Tr_velo_to_cam[0:3, 0:3] = np.reshape(velo2cam["R"], [3, 3])
+        Tr_velo_to_cam[:, 3] = velo2cam["T"]
+        data["Tr_velo_to_cam"] = np.reshape(Tr_velo_to_cam, [12])
+        data["R0_rect"] = cam2cam["R_rect_00"]
+        data["P2"] = cam2cam["P_rect_02"]
         return data
 
     def cart2hom(self, pts_3d):
-        ''' Input: nx3 points in Cartesian
+        """ Input: nx3 points in Cartesian
             Oupput: nx4 points in Homogeneous by pending 1
-        '''
+        """
         n = pts_3d.shape[0]
         pts_3d_hom = np.hstack((pts_3d, np.ones((n, 1))))
         return pts_3d_hom
@@ -181,17 +184,17 @@ class Calibration(object):
         return np.dot(pts_3d_ref, np.transpose(self.C2V))
 
     def project_rect_to_ref(self, pts_3d_rect):
-        ''' Input and Output are nx3 points '''
+        """ Input and Output are nx3 points """
         return np.transpose(np.dot(np.linalg.inv(self.R0), np.transpose(pts_3d_rect)))
 
     def project_ref_to_rect(self, pts_3d_ref):
-        ''' Input and Output are nx3 points '''
+        """ Input and Output are nx3 points """
         return np.transpose(np.dot(self.R0, np.transpose(pts_3d_ref)))
 
     def project_rect_to_velo(self, pts_3d_rect):
-        ''' Input: nx3 points in rect camera coord.
+        """ Input: nx3 points in rect camera coord.
             Output: nx3 points in velodyne coord.
-        '''
+        """
         pts_3d_ref = self.project_rect_to_ref(pts_3d_rect)
         return self.project_ref_to_velo(pts_3d_ref)
 
@@ -203,9 +206,9 @@ class Calibration(object):
     # ------- 3d to 2d ----------
     # ===========================
     def project_rect_to_image(self, pts_3d_rect):
-        ''' Input: nx3 points in rect camera coord.
+        """ Input: nx3 points in rect camera coord.
             Output: nx2 points in image2 coord.
-        '''
+        """
         pts_3d_rect = self.cart2hom(pts_3d_rect)
         pts_2d = np.dot(pts_3d_rect, np.transpose(self.P))  # nx3
         pts_2d[:, 0] /= pts_2d[:, 2]
@@ -213,20 +216,38 @@ class Calibration(object):
         return pts_2d[:, 0:2]
 
     def project_velo_to_image(self, pts_3d_velo):
-        ''' Input: nx3 points in velodyne coord.
+        """ Input: nx3 points in velodyne coord.
             Output: nx2 points in image2 coord.
-        '''
+        """
         pts_3d_rect = self.project_velo_to_rect(pts_3d_velo)
         return self.project_rect_to_image(pts_3d_rect)
+
+    def project_8p_to_4p(self, pts_2d):
+        x0 = np.min(pts_2d[:, 0])
+        x1 = np.max(pts_2d[:, 0])
+        y0 = np.min(pts_2d[:, 1])
+        y1 = np.max(pts_2d[:, 1])
+        x0 = max(0, x0)
+        # x1 = min(x1, proj.image_width)
+        y0 = max(0, y0)
+        # y1 = min(y1, proj.image_height)
+        return np.array([x0, y0, x1, y1])
+
+    def project_velo_to_4p(self, pts_3d_velo):
+        """ Input: nx3 points in velodyne coord.
+            Output: 4 points in image2 coord.
+        """
+        pts_2d_velo = self.project_velo_to_image(pts_3d_velo)
+        return self.project_8p_to_4p(pts_2d_velo)
 
     # ===========================
     # ------- 2d to 3d ----------
     # ===========================
     def project_image_to_rect(self, uv_depth):
-        ''' Input: nx3 first two channels are uv, 3rd channel
+        """ Input: nx3 first two channels are uv, 3rd channel
                    is depth in rect camera coord.
             Output: nx3 points in rect camera coord.
-        '''
+        """
         n = uv_depth.shape[0]
         x = ((uv_depth[:, 0] - self.c_u) * uv_depth[:, 2]) / self.f_u + self.b_x
         y = ((uv_depth[:, 1] - self.c_v) * uv_depth[:, 2]) / self.f_v + self.b_y
@@ -240,6 +261,26 @@ class Calibration(object):
         pts_3d_rect = self.project_image_to_rect(uv_depth)
         return self.project_rect_to_velo(pts_3d_rect)
 
+    def project_depth_to_velo(self, depth, constraint_box=True):
+        depth_pt3d = get_depth_pt3d(depth)
+        depth_UVDepth = np.zeros_like(depth_pt3d)
+        depth_UVDepth[:, 0] = depth_pt3d[:, 1]
+        depth_UVDepth[:, 1] = depth_pt3d[:, 0]
+        depth_UVDepth[:, 2] = depth_pt3d[:, 2]
+        # print("depth_pt3d:",depth_UVDepth.shape)
+        depth_pc_velo = self.project_image_to_velo(depth_UVDepth)
+        # print("dep_pc_velo:",depth_pc_velo.shape)
+        if constraint_box:
+            depth_box_fov_inds = (
+                (depth_pc_velo[:, 0] < cbox[0][1])
+                & (depth_pc_velo[:, 0] >= cbox[0][0])
+                & (depth_pc_velo[:, 1] < cbox[1][1])
+                & (depth_pc_velo[:, 1] >= cbox[1][0])
+                & (depth_pc_velo[:, 2] < cbox[2][1])
+                & (depth_pc_velo[:, 2] >= cbox[2][0])
+            )
+            depth_pc_velo = depth_pc_velo[depth_box_fov_inds]
+        return depth_pc_velo
 
 
 class Calibration_virtual(object):
@@ -276,6 +317,7 @@ class Calibration_virtual(object):
     '''
 
     def __init__(self, P, V2C, R0):
+        
         # Projection matrix from rect camera coord to image2 coord
         # self.P = calibs['P2']
         self.P = P
@@ -433,8 +475,8 @@ def load_image(img_filename):
     return cv2.imread(img_filename)
 
 
-def load_velo_scan(velo_filename):
-    scan = np.fromfile(velo_filename, dtype=np.float32)
+def load_velo_scan(velo_filename, dtype=np.float32):
+    scan = np.fromfile(velo_filename, dtype=float)
     scan = scan.reshape((-1, 4))
     return scan
 
@@ -528,3 +570,30 @@ def compute_orientation_3d(obj, P):
     # project orientation into the image plane
     orientation_2d = project_to_image(np.transpose(orientation_3d), P)
     return orientation_2d, np.transpose(orientation_3d)
+
+
+
+def draw_projected_box3d(image, qs, color=(0, 255, 0), thickness=2):
+    """ Draw 3d bounding box in image
+        qs: (8,3) array of vertices for the 3d box in following order:
+            1 -------- 0
+           /|         /|
+          2 -------- 3 .
+          | |        | |
+          . 5 -------- 4
+          |/         |/
+          6 -------- 7
+    """
+    qs = qs.astype(np.int32)
+    for k in range(0, 4):
+        # Ref: http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
+        i, j = k, (k + 1) % 4
+        # use LINE_AA for opencv3
+        # cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness, cv2.CV_AA)
+        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
+        i, j = k + 4, (k + 1) % 4 + 4
+        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
+
+        i, j = k, k + 4
+        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
+    return image

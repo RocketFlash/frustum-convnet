@@ -22,10 +22,10 @@ class kitti_object(object):
     def __init__(self, root_dir):
         '''root_dir contains training and testing folders'''
         self.root_dir = root_dir
-        self.image_dir = os.path.join(self.root_dir, 'image_2')
+        self.image_dir = os.path.join(self.root_dir, 'image_0')
         self.calib_dir = os.path.join(self.root_dir, 'calib')
         self.lidar_dir = os.path.join(self.root_dir, 'velodyne')
-        self.label_dir = os.path.join(self.root_dir, 'label_2')
+        self.label_dir = os.path.join(self.root_dir, 'label_filtered_0')
         self.num_samples = len([f for f in os.scandir(self.label_dir) if f.is_file()])
 
     def __len__(self):
@@ -41,7 +41,7 @@ class kitti_object(object):
 
     def get_calibration(self, idx):
         calib_filename = os.path.join(self.calib_dir, '{}.txt'.format(idx))
-        return utils.Calibration(calib_filename)
+        return utils.Calibration(calib_filename, cam_idx=0)
 
     def get_label_objects(self, idx):
         label_filename = os.path.join(self.label_dir, '{}.txt'.format(idx))

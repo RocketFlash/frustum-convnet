@@ -79,6 +79,8 @@ def DeConv3d(i_c, o_c, k, s=1, p=0, bn=True):
 
 def get_accuracy(output, target, ignore=None):
 
+    # print(output.shape[0])
+    # print(target.shape[0])
     assert output.shape[0] == target.shape[0]
     if ignore is not None:
         assert isinstance(ignore, int)
