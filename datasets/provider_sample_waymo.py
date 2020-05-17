@@ -70,14 +70,41 @@ class ProviderDataset(Dataset):
     def __len__(self):
         return len(self.data_idxs_list)
 
+
     def get_frustum_data(self, index):
-        dataset_idx, object_i, filename = self.data_names_list[index]
-        data = extract_frustum_data(filename,
-                                    object_i=object_i,
-                                    dataset=self.datasets[dataset_idx],
-                                    classes_mapper=self.classes_mapper,
-                                    type_whitelist=self.classes)
-        return data
+        dataset_idx, frame_idx = self.data_idxs_list[index]
+        frame = open_dataset.Frame()
+
+        for idx, data_i in enumerate(self.datasets[dataset_idx]):
+            if idx == frame_idx:     
+                frame.ParseFromString(bytearray(data_i.numpy()))
+                # print('Element has been found!')
+
+        images = wutils.get_images(frame)
+        calibs = wutils.get_calibs(frame)
+        pc = wutils.get_lidar(frame)
+        image_shapes = [img.shape for img in images]
+        labels = wutils.get_labels_in_cam(frame, calibs, image_shapes)
+
+        filtered_labels = {}
+        if self.filter_objects:
+            for labels_idx, labels_val in labels.items():
+                # print(f'Cam {labels_idx} Number of boxes before filtering {len(labels_val)}')
+                filtered_labels[labels_idx] = filter_boxes_kitti(labels_val, pc, calibs[labels_idx], thresh=self.lidar_points_threshold)
+                # print(f'Cam {labels_idx} Number of boxes after filtering {len(filtered_labels[labels_idx])}')
+        else:
+            filtered_labels = labels
+
+        datas = []
+        for labels_idx, labels_val in filtered_labels.items():
+            for lbl in labels_val:
+                idx_i = f'{index}_{labels_idx}'
+                data = extract_frustum_data(lbl, pc, images[labels_idx], calibs[labels_idx], idx_i=idx_i, type_whitelist=self.classes)
+                if data is not None:
+                    datas.append(data)
+
+        return datas
+
 
     def get_frustum_input(self, data):
         if data is None:
@@ -174,14 +201,16 @@ class ProviderDataset(Dataset):
                 ref4[:, 0] *= -1
 
         if self.random_shift:
+            max_depth = cfg.DATA.MAX_DEPTH
             l, w, h = size_i
             dist = np.sqrt(np.sum(l ** 2 + w ** 2))
             shift = np.clip(np.random.randn() * dist * 0.2, -0.5 * dist, 0.5 * dist)
-            shift = np.clip(shift + box3d_center[2], 0, 70) - box3d_center[2]
+            shift = np.clip(shift + box3d_center[2], 0, max_depth) - box3d_center[2]
             point_set[:, 2] += shift
             box3d_center[2] += shift
 
         labels = self.generate_labels(box3d_center, box3d_size, heading_angle, ref2, P)
+
 
         data_inputs = {
             'point_cloud': torch.FloatTensor(point_set).transpose(1, 0),
@@ -196,7 +225,6 @@ class ProviderDataset(Dataset):
             'box3d_heading': torch.FloatTensor([heading_angle]),
             'box3d_size': torch.FloatTensor(box3d_size),
             'size_class': torch.LongTensor([size_class])
-
         }
 
         if not rotate_to_center:
@@ -207,41 +235,16 @@ class ProviderDataset(Dataset):
         
         return data_inputs
 
-    
+
     def __getitem__(self, index):
-        dataset_idx, frame_idx = self.data_idxs_list[index]
-        frame = open_dataset.Frame()
-
-        for idx, data_i in enumerate(self.datasets[dataset_idx]):
-            if idx == frame_idx:     
-                frame.ParseFromString(bytearray(data_i.numpy()))
-                # print('Element has been found!')
-
-        images = wutils.get_images(frame)
-        calibs = wutils.get_calibs(frame)
-        pc = wutils.get_lidar(frame)
-        image_shapes = [img.shape for img in images]
-        labels = wutils.get_labels_in_cam(frame, calibs, image_shapes)
-
-        filtered_labels = {}
-        if self.filter_objects:
-            for labels_idx, labels_val in labels.items():
-                # print(f'Cam {labels_idx} Number of boxes before filtering {len(labels_val)}')
-                filtered_labels[labels_idx] = filter_boxes_kitti(labels_val, pc, calibs[labels_idx], thresh=self.lidar_points_threshold)
-                # print(f'Cam {labels_idx} Number of boxes after filtering {len(filtered_labels[labels_idx])}')
-        else:
-            filtered_labels = labels
-
-        # return images, calibs, pc, filtered_labels
+        datas = self.get_frustum_data(index)
 
         frustum_inputs = []
-        for labels_idx, labels_val in filtered_labels.items():
-            for lbl in labels_val:
-                data = extract_frustum_data(lbl, pc, images[labels_idx], calibs[labels_idx], type_whitelist=self.classes)
-                if data is not None:
-                    frustum_inputs.append(self.get_frustum_input(data))
+        for data in datas:
+            frustum_inputs.append(self.get_frustum_input(data))
         # print('Data extraction finished!')
-        return frustum_inputs
+        return [frustum_inputs, datas]
+
 
     def generate_labels(self, center, dimension, angle, ref_xyz, P):
         box_corner1 = compute_box_3d(center, dimension * 0.5, angle)
@@ -261,6 +264,7 @@ class ProviderDataset(Dataset):
             labels[argmin] = 1
 
         return labels
+
 
     def generate_ref(self, box, P):
 
@@ -298,6 +302,7 @@ class ProviderDataset(Dataset):
         xyz4_rect = project_image_to_rect(xyz4, P)
 
         return xyz1_rect, xyz2_rect, xyz3_rect, xyz4_rect
+
 
     def get_center_view_rot_angle(self, frustum_angle):
         ''' Get the frustum rotation angle, it isshifted by pi/2 so that it
@@ -356,12 +361,20 @@ def from_prediction_to_label_format(center, angle, size, rot_angle, ref_center=N
 
 def collate_fn(batch):
     true_batch = []
+    true_datas = [] 
     # logging.info(f'Batch input size in collate : {len(batch)}')
     for b in batch:
-        for el in b:
+        for el in b[0]:
             if el is not None:
                 true_batch.append(el)
+        for el in b[1]:
+            if el is not None:
+                true_datas.append(el)
     # batch = list(filter (lambda x:x is not None, batch))
     # logging.info(f'Lenght of true batch: {len(true_batch)}')
-    return default_collate(true_batch)
+
+    if len(true_batch)==0:
+        return None, None
+
+    return default_collate(true_batch), true_datas
 

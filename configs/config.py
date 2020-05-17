@@ -121,10 +121,16 @@ __C.DATA = AttrDict()
 
 __C.DATA.FILE = ''
 
+__C.DATA.DATASET_NAME = 'KITTI'
+
 __C.DATA.DATA_ROOT = 'kitti'
 
 # intensity for kitti, rgb for sunrgbd
 __C.DATA.WITH_EXTRA_FEAT = True
+
+__C.DATA.MAX_DEPTH = 70
+
+__C.DATA.MIN_NUM_LIDAR_POINTS_IN_DETECTION = 5
 
 __C.DATA.NUM_SAMPLES = 1024
 
@@ -230,7 +236,7 @@ def load_cfg(cfg_to_load):
         'Expected {} or {} got {}'.format(io.IOBase, string_types, type(cfg_to_load))
     if isinstance(cfg_to_load, io.IOBase):
         cfg_to_load = ''.join(cfg_to_load.readlines())
-    return yaml.load(cfg_to_load)
+    return yaml.safe_load(cfg_to_load)
 
 
 def merge_cfg_from_file(cfg_filename):

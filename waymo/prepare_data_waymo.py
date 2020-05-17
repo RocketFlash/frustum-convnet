@@ -111,7 +111,7 @@ def extract_image(data_name, dataset):
     return img
 
 
-def extract_frustum_data(object_i, pc, img, calib, perturb_box2d=False, augmentX=1, type_whitelist=['Car'], ):
+def extract_frustum_data(object_i, pc, img, calib, idx_i=0, perturb_box2d=False, augmentX=1, type_whitelist=['Car'], ):
     ''' Extract point clouds and corresponding annotations in frustums
         defined generated from 2D bounding boxes
         Lidar points and 3d boxes are in *rect camera* coord system
@@ -182,6 +182,8 @@ def extract_frustum_data(object_i, pc, img, calib, perturb_box2d=False, augmentX
         heading_angle = obj.ry
         # Get 3D BOX size
         box3d_size = np.array([obj.l, obj.w, obj.h])
+        # Object position
+        obj_pos_i = obj.t
 
         # Reject too far away object or object without points
         if  (box2d[3] - box2d[1]) < 25 or np.sum(label) == 0:
@@ -199,8 +201,10 @@ def extract_frustum_data(object_i, pc, img, calib, perturb_box2d=False, augmentX
 
         gt_box2d_i=box2d
         calib_i=calib
-        data = {'box2d_i' : box2d_i, 
-                'box3d_i': box3d_i, 
+        data = {'idx_i' : idx_i,
+                'box2d_i' : box2d_i, 
+                'box3d_i': box3d_i,
+                'obj_pos_i': obj_pos_i ,
                 'input_i':input_i, 
                 'label_i':label_i,
                 'type_i':type_i, 

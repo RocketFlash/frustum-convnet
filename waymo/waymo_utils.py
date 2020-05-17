@@ -1,7 +1,23 @@
 import numpy as np
 import cv2
 import math
+import os
+import tqdm
 from waymo_open_dataset.utils import frame_utils
+import tensorflow.compat.v1 as tf
+tf.enable_eager_execution()
+
+
+def get_sample_names(dataset_path):
+    dataset_idxs = []
+    tfrecord_filenames = [f.path for f in os.scandir(dataset_path) if f.is_file() and f.name.endswith('.tfrecord')]
+    datasets = []
+    for dataset_idx, file_name in enumerate(tqdm.tqdm(tfrecord_filenames)):
+        dataset = tf.data.TFRecordDataset(file_name, compression_type='')
+        datasets.append(dataset)
+        for idx, _ in enumerate(dataset):
+            dataset_idxs.append((dataset_idx, idx))
+    return datasets, dataset_idxs
 
 
 def get_box_transformation_matrix(obj_loc, obj_size, obj_ry):

@@ -40,6 +40,9 @@ from utils.training_states import TrainingStates
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
 from sklearn.model_selection import train_test_split
 import kitti.kitti_util as utils
+from waymo.waymo_utils import get_sample_names
+
+from datasets.dataset_info import DATASET_INFO
 
 import tensorflow.compat.v1 as tf
 import tqdm
@@ -117,20 +120,14 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
 
     tic = time.time()
     loader_size = len(data_loader)
-    # print(f'Loader size: {loader_size}')
 
     training_states = TrainingStates()
     time_training_start = time.time()
     
     for i, (data_dicts) in enumerate(data_loader):
-        # for data_dicts in data_dicts_all:
-        #     if data_dicts is None:
-        #         continue
-        # print(type(data_dicts))
         data_time_meter.update(time.time() - tic)
 
         batch_size = data_dicts['point_cloud'].shape[0]
-        # print(batch_size)
         data_dicts_var = {key: value.cuda() for key, value in data_dicts.items()}
         optimizer.zero_grad()
         
@@ -154,7 +151,7 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
 
         if (i + 1) % cfg.disp == 0 or (i + 1) == loader_size:
             time_training_end = time.time()
-            print('Time taken for 100 steps: {}'.format(time_training_end-time_training_start))
+            print('Time taken for {} steps: {}'.format(cfg.disp, time_training_end-time_training_start))
             time_training_start = time.time()
             states = training_states.get_states(avg=False)
 
@@ -219,18 +216,6 @@ def validate(data_loader, model, epoch, logger=None):
             logger.scalar_summary(tag, value, int(epoch))
 
     return states['IoU_' + str(cfg.IOU_THRESH)]
-
-
-def get_sample_names(dataset_path):
-    dataset_idxs = []
-    tfrecord_filenames = [f.path for f in os.scandir(dataset_path) if f.is_file() and f.name.endswith('.tfrecord')]
-    datasets = []
-    for dataset_idx, file_name in enumerate(tqdm.tqdm(tfrecord_filenames[:3])):
-        dataset = tf.data.TFRecordDataset(file_name, compression_type='')
-        datasets.append(dataset)
-        for idx, _ in enumerate(dataset):
-            dataset_idxs.append((dataset_idx, idx))
-    return datasets, dataset_idxs
 
 
 def main():
@@ -304,7 +289,7 @@ def main():
         cfg.DATA.NUM_SAMPLES,
         data_idxs_list=X_train,
         datasets = train_datasets,
-        lidar_points_threshold=5,
+        lidar_points_threshold=cfg.MIN_NUM_LIDAR_POINTS_IN_DETECTION,
         classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=True,
@@ -327,7 +312,7 @@ def main():
         cfg.DATA.NUM_SAMPLES,
         data_idxs_list=X_val,
         datasets = val_datasets,
-        lidar_points_threshold=5,
+        lidar_points_threshold=cfg.MIN_NUM_LIDAR_POINTS_IN_DETECTION,
         classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=False,
@@ -352,7 +337,11 @@ def main():
     model_def = model_def.PointNetDet
 
     input_channels = 3 if not cfg.DATA.WITH_EXTRA_FEAT else 4
-    NUM_VEC = 0 if cfg.DATA.CAR_ONLY else 3
+
+    dataset_name = cfg.DATA.DATASET_NAME
+    assert dataset_name in DATASET_INFO
+    datset_category_info = DATASET_INFO[dataset_name]
+    NUM_VEC = len(datset_category_info.CLASSES) # rgb category as extra feature vector
     NUM_CLASSES = len(cfg.MODEL.CLASSES)
 
     model = model_def(input_channels, num_vec=NUM_VEC, num_classes=NUM_CLASSES)
@@ -360,7 +349,7 @@ def main():
     # logging.info(pprint.pformat(model))
 
     if cfg.NUM_GPUS > 1:
-        model = torch.nn.DataParallel(model)
+        model = torch.nn.DataParallel(model,device_ids = [1, 0])
 
     model = model.cuda()
 

@@ -8,7 +8,6 @@ import logging
 
 from configs.config import cfg
 
-
 def import_from_file(def_file, cover=True):
     folder = os.path.dirname(def_file)
     file = os.path.basename(def_file)

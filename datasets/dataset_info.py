@@ -37,3 +37,9 @@ class WaymoCategory(object):
     MEAN_SIZE_ARRAY = np.zeros((NUM_SIZE_CLUSTER, 3))  # size clustrs
     for i in range(NUM_SIZE_CLUSTER):
         MEAN_SIZE_ARRAY[i, :] = CLASS_MEAN_SIZE[CLASSES[i]]
+
+
+DATASET_INFO = {
+    "KITTI": KITTICategory,
+    "Waymo": WaymoCategory
+}
