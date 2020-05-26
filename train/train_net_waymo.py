@@ -3,9 +3,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import wandb
+wandb.init(project="frustum")
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,7"
 
 import sys
 import math
@@ -124,7 +126,7 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
     training_states = TrainingStates()
     time_training_start = time.time()
     
-    for i, (data_dicts) in enumerate(data_loader):
+    for i, (data_dicts, datas) in enumerate(data_loader):
         data_time_meter.update(time.time() - tic)
 
         batch_size = data_dicts['point_cloud'].shape[0]
@@ -185,7 +187,7 @@ def validate(data_loader, model, epoch, logger=None):
 
     training_states = TrainingStates()
 
-    for i, (data_dicts) in enumerate(data_loader):
+    for i, (data_dicts, datas) in enumerate(data_loader):
         data_time_meter.update(time.time() - tic)
 
         batch_size = data_dicts['point_cloud'].shape[0]
@@ -266,8 +268,9 @@ def main():
     collate_fn = dataset_def.collate_fn
     dataset_def = dataset_def.ProviderDataset
 
+    take_each = 20
     train_dataset_paths = cfg.DATA.TRAIN_DATASET_PATHS
-    train_datasets, train_dataset_idxs = get_sample_names(train_dataset_paths[0])
+    train_datasets, train_dataset_idxs = get_sample_names(train_dataset_paths[0], take_each=take_each)
 
     if cfg.DATA.VAL_DATASET_PATHS is None:
         val_dataset_paths = train_dataset_paths
@@ -289,7 +292,7 @@ def main():
         cfg.DATA.NUM_SAMPLES,
         data_idxs_list=X_train,
         datasets = train_datasets,
-        lidar_points_threshold=cfg.MIN_NUM_LIDAR_POINTS_IN_DETECTION,
+        lidar_points_threshold=cfg.DATA.MIN_NUM_LIDAR_POINTS_IN_DETECTION,
         classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=True,
@@ -312,7 +315,7 @@ def main():
         cfg.DATA.NUM_SAMPLES,
         data_idxs_list=X_val,
         datasets = val_datasets,
-        lidar_points_threshold=cfg.MIN_NUM_LIDAR_POINTS_IN_DETECTION,
+        lidar_points_threshold=cfg.DATA.MIN_NUM_LIDAR_POINTS_IN_DETECTION,
         classes=cfg.MODEL.CLASSES,
         one_hot=True,
         random_flip=False,
@@ -346,6 +349,7 @@ def main():
 
     model = model_def(input_channels, num_vec=NUM_VEC, num_classes=NUM_CLASSES)
 
+    wandb.watch(model)
     # logging.info(pprint.pformat(model))
 
     if cfg.NUM_GPUS > 1:

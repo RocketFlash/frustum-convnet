@@ -8,7 +8,7 @@ import tensorflow.compat.v1 as tf
 tf.enable_eager_execution()
 
 
-def get_sample_names(dataset_path):
+def get_sample_names(dataset_path, take_each=1):
     dataset_idxs = []
     tfrecord_filenames = [f.path for f in os.scandir(dataset_path) if f.is_file() and f.name.endswith('.tfrecord')]
     datasets = []
@@ -16,7 +16,8 @@ def get_sample_names(dataset_path):
         dataset = tf.data.TFRecordDataset(file_name, compression_type='')
         datasets.append(dataset)
         for idx, _ in enumerate(dataset):
-            dataset_idxs.append((dataset_idx, idx))
+            if idx%take_each==0:
+                dataset_idxs.append((dataset_idx, idx))
     return datasets, dataset_idxs
 
 

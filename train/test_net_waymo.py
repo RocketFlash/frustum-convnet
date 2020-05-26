@@ -5,7 +5,7 @@ from __future__ import print_function
 import os
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
-os.environ["CUDA_VISIBLE_DEVICES"]="6, 7"
+os.environ["CUDA_VISIBLE_DEVICES"]="0, 7"
 
 import sys
 import math
