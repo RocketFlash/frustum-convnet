@@ -1,4 +1,8 @@
 import os
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
 import sys
 import time
 
@@ -22,7 +26,8 @@ from configs.config import merge_cfg_from_list
 from configs.config import assert_and_infer_cfg
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
 from datasets.provider_sample_waymo import from_prediction_to_label_format
-
+from datasets.dataset_info import DATASET_INFO
+from collections import OrderedDict
 
 def predict(model, data_dicts, method='nms'):
     
@@ -101,7 +106,7 @@ def predict(model, data_dicts, method='nms'):
     return predictions
 
 
-def load_model(cfg_file):
+def load_model(cfg_file, testing=False):
     merge_cfg_from_file(cfg_file)
     assert_and_infer_cfg()
 
@@ -109,25 +114,31 @@ def load_model(cfg_file):
     model_def = model_def.PointNetDet
 
     input_channels = 3 if not cfg.DATA.WITH_EXTRA_FEAT else 4
-    NUM_VEC = 0 if cfg.DATA.CAR_ONLY else 3
+    dataset_name = cfg.DATA.DATASET_NAME
+    assert dataset_name in DATASET_INFO
+    datset_category_info = DATASET_INFO[dataset_name]
+    NUM_VEC = len(datset_category_info.CLASSES) # rgb category as extra feature vector
     NUM_CLASSES = len(cfg.MODEL.CLASSES)
 
     model = model_def(input_channels, num_vec=NUM_VEC, num_classes=NUM_CLASSES)
-
-    if cfg.NUM_GPUS > 1:
-        model = torch.nn.DataParallel(model)
     model = model.cuda()
 
-    if os.path.isfile(cfg.TEST.WEIGHTS):
-        checkpoint = torch.load(cfg.TEST.WEIGHTS)
-        if 'state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['state_dict'])
-            logging.info("=> loaded checkpoint '{}' (epoch {})".format(cfg.TEST.WEIGHTS, checkpoint['epoch']))
+    if testing:
+        if os.path.isfile(cfg.TEST.WEIGHTS):
+            checkpoint = torch.load(cfg.TEST.WEIGHTS, map_location={'cuda:1': 'cuda:0'})
+            if 'state_dict' in checkpoint:
+                # print(checkpoint['state_dict'])
+                new_state_dict = OrderedDict()
+                for k, v in checkpoint['state_dict'].items():
+                    name = k[7:] # remove `module.`
+                    new_state_dict[name] = v
+                model.load_state_dict(new_state_dict)
+                logging.info("=> loaded checkpoint '{}' (epoch {})".format(cfg.TEST.WEIGHTS, checkpoint['epoch']))
+            else:
+                model.load_state_dict(checkpoint)
+                logging.info("=> loaded checkpoint '{}')".format(cfg.TEST.WEIGHTS))
         else:
-            model.load_state_dict(checkpoint)
-            logging.info("=> loaded checkpoint '{}')".format(cfg.TEST.WEIGHTS))
-    else:
-        logging.error("=> no checkpoint found at '{}'".format(cfg.TEST.WEIGHTS))
-        assert False
+            logging.error("=> no checkpoint found at '{}'".format(cfg.TEST.WEIGHTS))
+            assert False
 
     return model

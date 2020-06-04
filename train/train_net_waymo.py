@@ -37,14 +37,13 @@ from configs.config import cfg
 from configs.config import merge_cfg_from_file
 from configs.config import merge_cfg_from_list
 from configs.config import assert_and_infer_cfg
+from train.inference import load_model
 
 from utils.training_states import TrainingStates
 from utils.utils import get_accuracy, AverageMeter, import_from_file, get_logger
 from sklearn.model_selection import train_test_split
 import kitti.kitti_util as utils
 from waymo.waymo_utils import get_sample_names
-
-from datasets.dataset_info import DATASET_INFO
 
 import tensorflow.compat.v1 as tf
 import tqdm
@@ -127,6 +126,9 @@ def train(data_loader, model, optimizer, lr_scheduler, epoch, logger=None):
     time_training_start = time.time()
     
     for i, (data_dicts, datas) in enumerate(data_loader):
+        if data_dicts is None:
+            continue
+            
         data_time_meter.update(time.time() - tic)
 
         batch_size = data_dicts['point_cloud'].shape[0]
@@ -224,13 +226,11 @@ def main():
     # parse arguments
     args = parse_args()
 
-    if args.cfg_file is not None:
-        merge_cfg_from_file(args.cfg_file)
+    assert args.cfg_file is not None
+    model = load_model(args.cfg_file)
 
     if args.opts is not None:
         merge_cfg_from_list(args.opts)
-
-    assert_and_infer_cfg()
 
     if not os.path.exists(cfg.OUTPUT_DIR):
         os.makedirs(cfg.OUTPUT_DIR)
@@ -268,7 +268,7 @@ def main():
     collate_fn = dataset_def.collate_fn
     dataset_def = dataset_def.ProviderDataset
 
-    take_each = 20
+    take_each = cfg.DATA.TAKE_EACH_FOR_TRAINING
     train_dataset_paths = cfg.DATA.TRAIN_DATASET_PATHS
     train_datasets, train_dataset_idxs = get_sample_names(train_dataset_paths[0], take_each=take_each)
 
@@ -335,34 +335,15 @@ def main():
     logging.info('training: sample {} / batch {} '.format(len(train_dataset), len(train_loader)))
     logging.info('validation: sample {} / batch {} '.format(len(val_dataset), len(val_loader)))
 
-    logging.info(cfg.MODEL.FILE)
-    model_def = import_from_file(cfg.MODEL.FILE)
-    model_def = model_def.PointNetDet
-
-    input_channels = 3 if not cfg.DATA.WITH_EXTRA_FEAT else 4
-
-    dataset_name = cfg.DATA.DATASET_NAME
-    assert dataset_name in DATASET_INFO
-    datset_category_info = DATASET_INFO[dataset_name]
-    NUM_VEC = len(datset_category_info.CLASSES) # rgb category as extra feature vector
-    NUM_CLASSES = len(cfg.MODEL.CLASSES)
-
-    model = model_def(input_channels, num_vec=NUM_VEC, num_classes=NUM_CLASSES)
-
     wandb.watch(model)
-    # logging.info(pprint.pformat(model))
-
     if cfg.NUM_GPUS > 1:
-        model = torch.nn.DataParallel(model,device_ids = [1, 0])
-
-    model = model.cuda()
+        model = torch.nn.DataParallel(model, device_ids = [0, 1])
 
     parameters_size = 0
     for p in model.parameters():
         parameters_size += p.numel()
 
     logging.info('parameters: %d' % parameters_size)
-
     logging.info('using optimizer method {}'.format(cfg.TRAIN.OPTIMIZER))
 
     if cfg.TRAIN.OPTIMIZER == 'adam':
@@ -435,7 +416,7 @@ def main():
             'best_prec1': best_prec1,
             'best_epoch': best_epoch
         }
-        if (n + 1) % 5 == 0 or (n + 1) == MAX_EPOCH:
+        if (n + 1) % cfg.SAVE_WEIGHTS_EACH_EPOCHS == 0 or (n + 1) == MAX_EPOCH:
             torch.save(save_data, os.path.join(cfg.OUTPUT_DIR, 'model_%04d.pth' % (n + 1)))
 
         if is_best:

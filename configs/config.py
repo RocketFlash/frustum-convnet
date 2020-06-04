@@ -163,6 +163,8 @@ __C.DATA.VAL_DATASET_PATHS = None
 
 __C.DATA.VAL_DATA_RATIO = 0.3
 
+__C.DATA.TAKE_EACH_FOR_TRAINING = 1
+
 # Loss options
 __C.LOSS = AttrDict()
 
@@ -201,6 +203,8 @@ __C.EVAL_MODE = False
 __C.IOU_THRESH = 0.7
 
 __C.disp = 50
+
+__C.SAVE_WEIGHTS_EACH_EPOCHS = 1
 
 
 def assert_and_infer_cfg(cache_urls=True, make_immutable=True):

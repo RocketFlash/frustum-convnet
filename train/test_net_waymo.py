@@ -239,7 +239,6 @@ if __name__ == '__main__':
         collate_fn=collate_fn)
 
     input_channels = 3 if not cfg.DATA.WITH_EXTRA_FEAT else 4
-
     dataset_name = cfg.DATA.DATASET_NAME
     assert dataset_name in DATASET_INFO
     datset_category_info = DATASET_INFO[dataset_name]

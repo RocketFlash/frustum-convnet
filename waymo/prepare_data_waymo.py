@@ -216,6 +216,60 @@ def extract_frustum_data(object_i, pc, img, calib, idx_i=0, perturb_box2d=False,
     return data
   
 
+def extract_frustum_data_inference(bbox, pc, img, calib, type_whitelist=['Car']):
+    object_type = bbox[4]
+    if object_type not in type_whitelist:
+        # print('WRONG CLASS')
+        return None
+        
+    data = {}
+
+    pc_velo = pc
+    pc_rect = np.zeros_like(pc_velo)
+    pc_rect[:, 0:3] = calib.project_velo_to_rect(pc_velo[:, 0:3])
+    pc_rect[:, 3] = pc_velo[:, 3]
+
+    if img is None:
+        # print('Where is no image')
+        return None
+    img_height, img_width, img_channel = img.shape
+    _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov(pc_velo[:, 0:3], calib, 0, 0, img_width, img_height, True)
+
+    # 2D BOX: Get pts rect backprojected
+    box2d = bbox[:4]
+    xmin, ymin, xmax, ymax = box2d
+    box_fov_inds = (pc_image_coord[:, 0] < xmax) & \
+                (pc_image_coord[:, 0] >= xmin) & \
+                (pc_image_coord[:, 1] < ymax) & \
+                (pc_image_coord[:, 1] >= ymin)
+    box_fov_inds = box_fov_inds & img_fov_inds
+    pc_in_box_fov = pc_rect[box_fov_inds, :]
+
+    pc_box_image_coord = pc_image_coord[box_fov_inds]
+
+    # Get frustum angle (according to center pixel in 2D BOX)
+    box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
+    uvdepth = np.zeros((1, 3))
+    uvdepth[0, 0:2] = box2d_center
+    uvdepth[0, 2] = 20  # some random depth
+    box2d_center_rect = calib.project_image_to_rect(uvdepth)
+    frustum_angle = -1 * np.arctan2(box2d_center_rect[0, 2],
+                                    box2d_center_rect[0, 0])
+
+    # Reject too far away object or object without points
+    if  (box2d[3] - box2d[1]) < 25:
+        # print('Too small object')
+        return None
+
+    data = {'box2d_i' : np.array([xmin, ymin, xmax, ymax]), 
+            'input_i':pc_in_box_fov.astype(np.float32, copy=False), 
+            'type_i':object_type, 
+            'frustum_angle_i':frustum_angle,
+            'calib_i':calib}
+    return data
+  
+
+
 def get_box3d_dim_statistics(idx_filename):
     ''' Collect and dump 3D bounding box statistics '''
     dataset = kitti_object(os.path.join(ROOT_DIR, 'data/kitti'))

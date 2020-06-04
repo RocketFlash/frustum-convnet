@@ -36,14 +36,15 @@ DATA:
   TEST_DATASET_PATHS : ['/dataset/waymo/validation/'] # Path to training dataset folders in Waymo format
   # VAL_DATASET_PATHS: # Path to testing dataset folder
   VAL_DATA_RATIO: 0.3 # If VAL_DATASET_PATH is None split training data on train and val
-  
+  TAKE_EACH_FOR_TRAINING: 20 # Take each TAKE_EACH_FOR_TRAINING from tfrecord file to reduce number of training samples
 
 RANDOM_STATE: 42
 RESUME: True
-NUM_GPUS: 2
+NUM_GPUS: 1
 OUTPUT_DIR: 'output/car_train_waymo_all_classes'
 SAVE_SUB_DIR: 'val_nms'
 USE_TFBOARD: True
 NUM_WORKERS: 0
 FROM_RGB_DET: True
+SAVE_WEIGHTS_EACH_EPOCHS: 1
 disp: 2
